@@ -1,5 +1,16 @@
 class DragCard extends HTMLElement {
+
+    getEntitiesByType(type) {
+        return Object.keys(this._hass.states).filter(
+            (eid) => eid.substr(0, eid.indexOf('.')) === type
+        );
+    }
+    render() {
+        console.log(render)
+    }
+
     constructor() {
+        //console.log("constructor");
         super();
         this.isDragging = false;
         this.initialX = 0;
@@ -14,23 +25,28 @@ class DragCard extends HTMLElement {
         this.distanceMouse = 0;
         this.clickCount = 0;
 
+        /*
         this.maxDrag = 100;         //the maximum distance the button can be dragged in px
         this.stopSpeedFactor = 1;   //the speed at which the button will reach its max drag distance
         this.repeatTime = 200;      //rapid fire interval time in ms
         this.holdTime = 800;        //time until hold action gets activated in ms
-        this.multiClickTime = 300;  //time between clicks to activate multi click in ms
         this.maxMultiClicks = 2;    //max amount of MultiClicks to register
         this.deadzone = 30;         //distance in px until click action will be triggert
+        */
+        this.multiClickTime = 300;  //time between clicks to activate multi click in ms
+
         this.lastClick = null;      //value to store the last click time
         this.lastClickType = null;
-        this.stopSpeed = this.maxDrag * this.stopSpeedFactor;
     }
-
+    
     set hass(hass) {
+        //console.log("hass");
         this._hass = hass;
     }
 
     connectedCallback() {
+        console.log("connectedCallback");
+
         this.innerHTML = `
             <style>
                 #dragButtonContainer {
@@ -56,7 +72,7 @@ class DragCard extends HTMLElement {
                     touch-action: none;
                     overflow: hidden;
                     cursor: pointer;
-                    z-index: 1;
+                    z-index: 0;
                 }
                 #ripple {
                     position: absolute;
@@ -73,43 +89,94 @@ class DragCard extends HTMLElement {
                     position: absolute;
                     top: 50%;
                     left: 50%;
-                    transform: translate(-50%, -50%);
-                    height: 68%;
-                    fill: rgb(255, 255, 255);
+                    transform: translate(-60%, -50%);
                     pointer-events: none;
+                    --mdc-icon-size: 120%;
+                }
+                #image {
+                    position: absolute;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    pointer-events: none;
+                    height: 60%;
                 }
             </style>
-            <!--<ha-card id="dragButtonContainer">-->
+            <ha-card id="dragButtonContainer">
                 <div id="dragButtonOrigin">
                     <div id="dragButton">
                         <div id="ripple"></div>
-                        <svg id="icon" viewBox="0 0 24 24"><path d="M14 12L10 8V11H2V13H10V16M22 12A10 10 0 0 1 2.46 15H4.59A8 8 0 1 0 4.59 9H2.46A10 10 0 0 1 22 12Z" /></svg>
-                        <!--<img src="/local/icons/power_on.svg" alt="Image">-->
+                        <div id="iconContainer">
+                            <ha-icon id="icon"></ha-icon>
+                            <img id="image" alt="Image"></img>
+                        </div>
                     </div>
                 </div>
-            <!--</ha-card>-->
+            </ha-card>
         `;
-        this.divElement = this.querySelector("#dragButton");
+        this.card = this.querySelector("#dragButtonContainer");
+        if (this.cardHeight != null) {this.card.style.height = this.cardHeight}
+        if (this.padding != null) {this.card.style.padding = this.padding}
+        
+        if (this.isStandalone == false) {this.card.outerHTML = this.card.innerHTML}
+        
+        if (this.maxDrag == null) {this.maxDrag = 100}
+        if (this.stopSpeedFactor == null) {this.stopSpeedFactor = 1}
+        if (this.repeatTime == null) {this.repeatTime = 200}
+        if (this.holdTime == null) {this.holdTime = 800}
+        if (this.maxMultiClicks == null) {this.maxMultiClicks = 2}
+        if (this.deadzone == null) {this.deadzone = 20}
+        
+        this.stopSpeed = this.maxDrag * this.stopSpeedFactor;
+
+        this.dragButtonOrigin = this.querySelector("#dragButtonOrigin");
+        if (this.height != null) {this.dragButtonOrigin.style.height = this.height}
+        if (this.width != null) {this.dragButtonOrigin.style.width = this.width}
+
+        this.dragButton = this.querySelector("#dragButton");
+        if (this.backgroundColor != null) {this.dragButton.style.backgroundColor = this.backgroundColor}
+        if (this.borderRadius != null) {this.dragButton.style.borderRadius = this.borderRadius}
+
         this.rippleElement = this.querySelector("#ripple");
-        this.icon = this.querySelector("#icon");
-        this.computedStyle = window.getComputedStyle(this.divElement);
+        if (this.icoDefault != null) {
+            this.setIcon(this.icoDefault)
+        } else if (this.icoCenter != null) {
+            this.setIcon(this.icoCenter)
+        } else {
+            this.setIcon('mdi:alert')
+        }
+
+        this.computedStyle = window.getComputedStyle(this.dragButton);
         this.rippleComputedStyle = window.getComputedStyle(this.rippleElement);
         this.addEventListeners();
     }
 
+    setIcon(icon) {
+        this.iconContainer = this.querySelector("#iconContainer");
+        if (icon != null) {
+            if (icon.startsWith("/local/")){
+                console.log(this.iconContainer.outerHTML)
+                this.iconContainer.outerHTML = '<div id="iconContainer"><img id="image" src="' + icon + '" alt="Image"></img></div>';
+            } else {
+                console.log(this.iconContainer.outerHTML)
+                this.iconContainer.outerHTML = '<div id="iconContainer"><ha-icon id="icon" icon="' + icon + '"></ha-icon></div>';
+            }
+        }
+    }
+
     addEventListeners() {
-        this.divElement.addEventListener("touchstart", this.handleTouchStart.bind(this), { passive: true });
-        this.divElement.addEventListener("touchmove", this.handleTouchMove.bind(this), { passive: true });
-        this.divElement.addEventListener("touchend", this.handleTouchEnd.bind(this), { passive: true });
-        this.divElement.addEventListener("mousedown", this.handleMouseDown.bind(this));
+        this.dragButton.addEventListener("touchstart", this.handleTouchStart.bind(this), { passive: true });
+        this.dragButton.addEventListener("touchmove", this.handleTouchMove.bind(this), { passive: true });
+        this.dragButton.addEventListener("touchend", this.handleTouchEnd.bind(this), { passive: true });
+        this.dragButton.addEventListener("mousedown", this.handleMouseDown.bind(this));
         document.addEventListener("mousemove", this.handleMouseMove.bind(this));
         document.addEventListener("mouseup", this.handleMouseUp.bind(this));
     }
 
     handleTouchStart(event) {
         event = event.touches[0];
-        this.offsetX = event.clientX - this.divElement.offsetLeft;
-        this.offsetY = event.clientY - this.divElement.offsetTop;
+        this.offsetX = event.clientX - this.dragButton.offsetLeft;
+        this.offsetY = event.clientY - this.dragButton.offsetTop;
         //console.log('touchStart ' + event);
         this.handleStart(event);
     }
@@ -148,6 +215,7 @@ class DragCard extends HTMLElement {
 
     handleStart(event) {
         //console.log('start');
+        this.dragButton.style.zIndex = '1';
         this.initialX = event.clientX;
         this.initialY = event.clientY;
         //console.log('x' + this.offsetX + ' Y' + this.offsetY)
@@ -200,26 +268,39 @@ class DragCard extends HTMLElement {
     }
 
     handleDrag() {
+        this.dragButton.style.zIndex = '1';
         this.diffX = this.currentX - this.initialX;
         this.diffY = this.currentY - this.initialY;
         this.distanceMouse = Math.sqrt(this.diffX ** 2 + this.diffY ** 2);
         const normalizedX = this.diffX / this.distanceMouse;
         const normalizedY = this.diffY / this.distanceMouse;
         const dragDistance = (1-(this.stopSpeed / (this.distanceMouse + this.stopSpeed))) * this.maxDrag;
-        this.divElement.style.cursor = 'grabbing';
-        this.divElement.style.top = normalizedY * dragDistance + 'px';
-        this.divElement.style.left = normalizedX * dragDistance + 'px';
+        this.dragButton.style.cursor = 'grabbing';
+        console.log('X' + normalizedX + ' Y' + normalizedY);
+        if((normalizedY > 0 && this.entityDown != null) || (normalizedY < 0 && this.entityUp != null)) {
+            this.dragButton.style.top = normalizedY * dragDistance + 'px';
+        } else {
+            this.dragButton.style.top = 0 + 'px';
+        }
+        if((normalizedX > 0 && this.entityRight != null) || (normalizedX < 0 && this.entityLeft != null)) {
+            this.dragButton.style.left = normalizedX * dragDistance + 'px';
+        } else {
+            this.dragButton.style.left = 0 + 'px';
+        }
     }
 
     detectSwipeDirection(deadzone, holdMode) {
+        clearTimeout(this.iconTimeout);
         //console.log(this.distanceMouse);
+        //console.log(this.icon.outerHTML)
         if (this.distanceMouse < deadzone) {
             //console.log(Date.now() - this.startTime + "time " + this.holdTime + "hold");
-            this.icon.innerHTML = '<path d="M14 12L10 8V11H2V13H10V16M22 12A10 10 0 0 1 2.46 15H4.59A8 8 0 1 0 4.59 9H2.46A10 10 0 0 1 22 12Z"/>';
             if (holdMode == true && this.actionCounter == 0) {
                 console.log("hold");
-                if (this.entityHold != null)
-                    this._hass.callService('button', 'press', {entity_id: this.entityHold,});
+                if (this.entityHold != null) {
+                    this.setIcon(this.icoHold)
+                    this.callCorrectService(this.entityHold);
+                }
                 this.handleEnd()
             }
             if (holdMode == false){
@@ -230,17 +311,24 @@ class DragCard extends HTMLElement {
                     if (Date.now() - this.lastClick >= this.multiClickTime || this.clickCount==this.maxMultiClicks) {
                         console.log('clickCount: ' + this.clickCount);
                         if (this.clickCount == 1 && this.entityCenter != null) {
-                            this._hass.callService('button', 'press', {entity_id: this.entityCenter,});
-                        } else if (this.clickCount == 2 && this.entityDouble != null)
-                            this._hass.callService('button', 'press', {entity_id: this.entityDouble,});
-                        else if (this.clickCount == 3 && this.entityTriple != null)
-                            this._hass.callService('button', 'press', {entity_id: this.entityTriple,});
-                        else if (this.clickCount == 4 && this.entityQuadruple != null)
-                            this._hass.callService('button', 'press', {entity_id: this.entityQuadruple,});
-                        else if (this.clickCount == 5 && this.entityFivefold != null)
-                            this._hass.callService('button', 'press', {entity_id: this.entityFivefold,});
-                        else if (this.clickCount == 6 && this.entitySixfold != null)
-                            this._hass.callService('button', 'press', {entity_id: this.entitySixfold,});
+                            this.setIcon(this.icoCenter);
+                            this.callCorrectService(this.entityCenter);
+                        } else if (this.clickCount == 2 && this.entityDouble != null) {
+                            this.setIcon(this.icoDouble);
+                            this.callCorrectService(this.entityDouble);
+                        } else if (this.clickCount == 3 && this.entityTriple != null) {
+                            this.setIcon(this.icoTriple);
+                            this.callCorrectService(this.entityTriple);
+                        } else if (this.clickCount == 4 && this.entityQuadruple != null) {
+                            this.setIcon(this.icoQuadruple);
+                            this.callCorrectService(this.entityQuadruple);
+                        } else if (this.clickCount == 5 && this.entityFivefold != null) {
+                            this.setIcon(this.icoFivefold);
+                            this.callCorrectService(this.entityFivefold);
+                        } else if (this.clickCount == 6 && this.entitySixfold != null) {
+                            this.setIcon(this.icoSixfold);
+                            this.callCorrectService(this.entitySixfold);
+                        }
                         this.clickCount = 0;
                         clearInterval(this.handleClick);
                     }
@@ -249,33 +337,51 @@ class DragCard extends HTMLElement {
         } else if (Math.abs(this.diffX) > Math.abs(this.diffY)) {
             if (this.diffX > 0) {
                 console.log("swipe right");
-                this.icon.innerHTML = '<path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/>';
-                if (this.entityRight != null)
-                    this._hass.callService('button', 'press', {entity_id: this.entityRight,});
+                if (this.entityRight != null) {
+                    this.setIcon(this.icoRight);
+                    this.callCorrectService(this.entityRight);
+                }
             } else {
                 console.log("swipe left");
-                this.icon.innerHTML = '<path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/>';
-                if (this.entityLeft != null)
-                    this._hass.callService('button', 'press', {entity_id: this.entityLeft,});
+                if (this.entityLeft != null) {
+                    this.setIcon(this.icoLeft);
+                    this.callCorrectService(this.entityLeft);
+                }
             }
         } else {
             if (this.diffY > 0) {
                 console.log("swipe down");
-                this.icon.innerHTML = '<path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/>';
-                if (this.entityDown != null)
-                    this._hass.callService('button', 'press', {entity_id: this.entityDown,});
+                if (this.entityDown != null) {
+                    this.setIcon(this.icoDown);
+                    this.callCorrectService(this.entityDown);
+                }
             } else {
                 console.log("swipe up");
-                this.icon.innerHTML = '<path d="M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z"/>';
-                if (this.entityUp != null)
-                    this._hass.callService('button', 'press', {entity_id: this.entityUp,});
+                if (this.entityUp != null) {
+                    this.setIcon(this.icoUp);
+                    this.callCorrectService(this.entityUp);
+                }
             }
         }
         this.actionCounter++
+        this.iconTimeout = setTimeout(() => {
+            this.setIcon(this.icoDefault)
+        }, 3000);
+    }
+
+    callCorrectService(id) {
+        let parts = id.split(".");
+        if (parts[0] == "button") {
+            this._hass.callService('button', 'press', {entity_id: id});
+        } else if (parts[0] == "script") {
+            this._hass.callService('script', 'turn_on', {entity_id: id})
+        } else {
+            this._hass.callService(parts[0], 'toggle', {entity_id: id})
+        }
     }
 
     handleEnd() {
-        this.divElement.style.cursor = 'pointer';
+        this.dragButton.style.cursor = 'pointer';
         if (this.isDragging) {
             this.isDragging = false;
             if (this.repeatAction == null)
@@ -318,20 +424,22 @@ class DragCard extends HTMLElement {
             let currentValue = (time - 1) ** 2;
             i++;
             //console.log(normalizedX * (currentValue * distanceDiv) + 'px')
-            this.divElement.style.top = normalizedX * (currentValue * distanceDiv) + 'px';
-            this.divElement.style.left = normalizedY * (currentValue * distanceDiv) + 'px';
+            this.dragButton.style.top = normalizedX * (currentValue * distanceDiv) + 'px';
+            this.dragButton.style.left = normalizedY * (currentValue * distanceDiv) + 'px';
             if (time >= 1) {
-                this.divElement.style.top = 0 + 'px';
-                this.divElement.style.left = 0 + 'px';
+                this.dragButton.style.top = 0 + 'px';
+                this.dragButton.style.left = 0 + 'px';
+                this.dragButton.style.zIndex = '0';
                 clearInterval(this.interval);
             }
         }, steptime);
     }
 
     setConfig(config) {
-        if (!config.entityLeft || !config.entityRight) {
-            throw new Error("You need to define entityLeft and entityRight");
-        }
+        console.log("setConfig");
+        //if (!config.entityLeft || !config.entityRight) {
+        //    throw new Error("You need to define entityLeft and entityRight");
+        //}
         this.entityUp = config.entityUp;
         this.entityDown = config.entityDown;
         this.entityLeft = config.entityLeft;
@@ -343,16 +451,42 @@ class DragCard extends HTMLElement {
         this.entityQuadruple = config.entityQuadruple;
         this.entityFivefold = config.entityFivefold;
         this.entitySixfold = config.entitySixfold;
+        
+        this.icoDefault = config.icoDefault;
+        this.icoUp = config.icoUp;
+        this.icoRight = config.icoRight;
+        this.icoDown = config.icoDown;
+        this.icoLeft = config.icoLeft;
+        this.icoCenter = config.icoCenter;
+        this.icoHold = config.icoHold;
+        this.icoDouble = config.icoDouble;
+        this.icoTriple = config.icoTriple;
+        this.icoQuadruple = config.icoQuadruple;
+        this.icoFivefold = config.icoFivefold;
+        this.icoSixfold = config.entitySixfold;
 
-        this.maxMultiClicks = config.maxMultiClicks;
+        this.maxDrag = config.maxDrag;                  //the maximum distance the button can be dragged in px
+        this.stopSpeedFactor = config.stopSpeedFactor;  //the speed at which the button will reach its max drag distance
+        this.repeatTime = config.repeatTime;            //rapid fire interval time in ms
+        this.holdTime = config.holdTime;                //time until hold action gets activated in ms
+        this.maxMultiClicks = config.maxMultiClicks;    //max amount of MultiClicks to register
+        this.deadzone = config.deadzone;    
 
-        this.upIcon = config.upIcon;
-        this.downIcon = config.downIcon;
-        this.leftIcon = config.leftIcon;
-        this.rightIcon = config.rightIcon;
+        this.isStandalone = config.isStandalone;
+        this.padding = config.padding;
+        this.cardHeight = config.cardHeight;
+
+        this.height = config.height;
+        this.width = config.width;
+        this.backgroundColor = config.backgroundColor;
+        this.borderRadius = config.borderRadius;
+
+        this.iconHeight = config.iconHeight;
+        this.iconWidth = config.iconWidth;
     }
 
     static getEditorConfig() {
+        console.log("getEditorConfig");
         return {
             type: 'entity',
             name: 'Drag Card',
@@ -365,6 +499,7 @@ class DragCard extends HTMLElement {
     }
 
     static getStubConfig(ha) {
+        console.log("getEditorConfig");
         return {
             type: 'custom:drag-card',
             entityLeft: 'button.ir_control_left',
@@ -373,6 +508,7 @@ class DragCard extends HTMLElement {
             entityDown: 'button.ir_control_volume_down',
             entityCenter: 'button.ir_control_enter',
             maxMultiClicks: '2',
+            isStandalone: 'true',
         };
     }
 }
