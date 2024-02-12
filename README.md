@@ -1,4 +1,4 @@
-# Home Assistant - Drag Button Card
+# Home Assistant - Drag Card
 A button for Home Assistant which can be dragged in four directions to trigger four actions.
 
 <picture>
