@@ -1,14 +1,5 @@
 class DragCard extends HTMLElement {
 
-    getEntitiesByType(type) {
-        return Object.keys(this._hass.states).filter(
-            (eid) => eid.substr(0, eid.indexOf('.')) === type
-        );
-    }
-    render() {
-        console.log(render)
-    }
-
     constructor() {
         //console.log("constructor");
         super();
@@ -45,7 +36,7 @@ class DragCard extends HTMLElement {
     }
 
     connectedCallback() {
-        console.log("connectedCallback");
+        //console.log("connectedCallback");
 
         this.innerHTML = `
             <style>
@@ -155,10 +146,10 @@ class DragCard extends HTMLElement {
         this.iconContainer = this.querySelector("#iconContainer");
         if (icon != null) {
             if (icon.startsWith("/local/")){
-                console.log(this.iconContainer.outerHTML)
+                //console.log(this.iconContainer.outerHTML)
                 this.iconContainer.outerHTML = '<div id="iconContainer"><img id="image" src="' + icon + '" alt="Image"></img></div>';
             } else {
-                console.log(this.iconContainer.outerHTML)
+                //console.log(this.iconContainer.outerHTML)
                 this.iconContainer.outerHTML = '<div id="iconContainer"><ha-icon id="icon" icon="' + icon + '"></ha-icon></div>';
             }
         }
@@ -276,7 +267,7 @@ class DragCard extends HTMLElement {
         const normalizedY = this.diffY / this.distanceMouse;
         const dragDistance = (1-(this.stopSpeed / (this.distanceMouse + this.stopSpeed))) * this.maxDrag;
         this.dragButton.style.cursor = 'grabbing';
-        console.log('X' + normalizedX + ' Y' + normalizedY);
+        //console.log('X' + normalizedX + ' Y' + normalizedY);
         if((normalizedY > 0 && this.entityDown != null) || (normalizedY < 0 && this.entityUp != null)) {
             this.dragButton.style.top = normalizedY * dragDistance + 'px';
         } else {
@@ -436,7 +427,7 @@ class DragCard extends HTMLElement {
     }
 
     setConfig(config) {
-        console.log("setConfig");
+        //console.log("setConfig");
         //if (!config.entityLeft || !config.entityRight) {
         //    throw new Error("You need to define entityLeft and entityRight");
         //}
@@ -483,23 +474,12 @@ class DragCard extends HTMLElement {
 
         this.iconHeight = config.iconHeight;
         this.iconWidth = config.iconWidth;
-    }
 
-    static getEditorConfig() {
-        console.log("getEditorConfig");
-        return {
-            type: 'entity',
-            name: 'Drag Card',
-            icon: 'mdi:arrow-expand-all',
-            config: {
-                entity1: '',
-                entity2: ''
-            },
-        };
+        this.connectedCallback()
     }
 
     static getStubConfig(ha) {
-        console.log("getEditorConfig");
+        //console.log("getEditorConfig");
         return {
             type: 'custom:drag-card',
             entityLeft: 'button.ir_control_left',
