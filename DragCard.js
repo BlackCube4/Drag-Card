@@ -16,16 +16,6 @@ class DragCard extends HTMLElement {
         this.distanceMouse = 0;
         this.clickCount = 0;
 
-        /*
-        this.maxDrag = 100;         //the maximum distance the button can be dragged in px
-        this.stopSpeedFactor = 1;   //the speed at which the button will reach its max drag distance
-        this.repeatTime = 200;      //rapid fire interval time in ms
-        this.holdTime = 800;        //time until hold action gets activated in ms
-        this.maxMultiClicks = 2;    //max amount of MultiClicks to register
-        this.deadzone = 30;         //distance in px until click action will be triggert
-        */
-        this.multiClickTime = 300;  //time between clicks to activate multi click in ms
-
         this.lastClick = null;      //value to store the last click time
         this.lastClickType = null;
     }
@@ -116,6 +106,7 @@ class DragCard extends HTMLElement {
         if (this.repeatTime == null) {this.repeatTime = 200}
         if (this.holdTime == null) {this.holdTime = 800}
         if (this.maxMultiClicks == null) {this.maxMultiClicks = 2}
+        if (this.multiClickTime == null) {this.multiClickTime = 300}
         if (this.deadzone == null) {this.deadzone = 20}
         
         this.stopSpeed = this.maxDrag * this.stopSpeedFactor;
@@ -454,14 +445,15 @@ class DragCard extends HTMLElement {
         this.icoTriple = config.icoTriple;
         this.icoQuadruple = config.icoQuadruple;
         this.icoFivefold = config.icoFivefold;
-        this.icoSixfold = config.entitySixfold;
+        this.icoSixfold = config.iconSixfold;
 
         this.maxDrag = config.maxDrag;                  //the maximum distance the button can be dragged in px
         this.stopSpeedFactor = config.stopSpeedFactor;  //the speed at which the button will reach its max drag distance
         this.repeatTime = config.repeatTime;            //rapid fire interval time in ms
         this.holdTime = config.holdTime;                //time until hold action gets activated in ms
         this.maxMultiClicks = config.maxMultiClicks;    //max amount of MultiClicks to register
-        this.deadzone = config.deadzone;    
+        this.multiClickTime = config.multiClickTime;    //time between clicks to activate multi click in ms
+        this.deadzone = config.deadzone;
 
         this.isStandalone = config.isStandalone;
         this.padding = config.padding;
