@@ -53,12 +53,12 @@ class DragCard extends HTMLElement {
                 }
                 #dragButton {
                     position: relative;
-                    border-radius: 10px;
+                    border-radius: var(--ha-card-border-radius);
                     top: 0px;
                     left: 0px;
                     width: 100%;
                     height: 100%;
-                    background-color: #1D1E21;
+                    background-color: var(--card-background-color);
                     box-shadow: var(--ha-card-box-shadow);
                     touch-action: none;
                     overflow: hidden;
