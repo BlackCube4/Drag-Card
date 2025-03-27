@@ -4,7 +4,7 @@ const TerserPlugin = require('terser-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 module.exports = {
-  entry: './src/drag-card.ts',
+  entry: './src/index.ts',
   mode: 'production',
   module: {
     rules: [
