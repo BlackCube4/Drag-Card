@@ -477,24 +477,30 @@ class DragCard extends HTMLElement {
     static getStubConfig(ha) {
         //console.log("getEditorConfig");
         return {
-            type: 'custom:drag-card',
-            entityLeft: 'button.ir_control_left',
-            entityRight: 'button.ir_control_right',
+            type: 'custom:original-drag-card',
             entityUp: 'button.ir_control_volume_up',
             entityDown: 'button.ir_control_volume_down',
+            entityLeft: 'button.ir_control_left',
+            entityRight: 'button.ir_control_right',
             entityCenter: 'button.ir_control_enter',
+            icoDefault: 'mdi:drag-variant',
+            icoUp: 'mdi:chevron-up',
+            icoDown: 'mdi:chevron-down',
+            icoLeft: 'mdi:chevron-left',
+            icoRight: 'mdi:chevron-right',
+            icoCenter: 'mdi:circle-medium',
             maxMultiClicks: '2',
             isStandalone: 'true',
         };
     }
 }
 
-customElements.define("drag-card", DragCard);
+customElements.define("original-drag-card", DragCard);
 
 window.customCards = window.customCards || [];
 window.customCards.push({
-    type: 'drag-card',
-    name: 'Drag Card',
+    type: 'original-drag-card',
+    name: ' Original Drag Card',
     description: 'A custom button with multible funktions depending on the drag direction',
     preview: true,
 });
