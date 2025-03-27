@@ -1,4 +1,3 @@
-// src/interfaces/drag-card-config.interface.ts
 export interface DragCardConfig {
     entityUp?: string;
     entityDown?: string;
@@ -23,7 +22,7 @@ export interface DragCardConfig {
     icoTriple?: string;
     icoQuadruple?: string;
     icoFivefold?: string;
-    iconSixfold?: string;
+    icoSixfold?: string;
 
     maxDrag?: number;
     stopSpeedFactor?: number;

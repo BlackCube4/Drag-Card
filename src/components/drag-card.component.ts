@@ -224,11 +224,30 @@ export class DragCard extends HTMLElement {
 
     setIcon(icon: string | null): void {
         if (!this.iconContainer) return;
+        
+        const iconElement = this.iconContainer.querySelector('#icon') as HTMLElement | null;
+        const imageElement = this.iconContainer.querySelector('#image') as HTMLImageElement | null;
+    
         if (icon != null) {
             if (icon.startsWith("/local/")) {
-                this.iconContainer.outerHTML = '<div id="iconContainer"><img id="image" src="' + icon + '" alt="Image"></img></div>';
+                // If it's a local image
+                if (imageElement) {
+                    imageElement.src = icon;
+                    imageElement.alt = 'Image';
+                    imageElement.style.display = 'block';
+                }
+                if (iconElement) {
+                    iconElement.style.display = 'none';
+                }
             } else {
-                this.iconContainer.outerHTML = '<div id="iconContainer"><ha-icon id="icon" icon="' + icon + '"></ha-icon></div>';
+                // If it's an MDI icon
+                if (iconElement) {
+                    (iconElement as any).icon = icon;
+                    iconElement.style.display = 'block';
+                }
+                if (imageElement) {
+                    imageElement.style.display = 'none';
+                }
             }
         }
     }
@@ -545,7 +564,7 @@ export class DragCard extends HTMLElement {
         this.icoTriple = config.icoTriple ?? null;
         this.icoQuadruple = config.icoQuadruple ?? null;
         this.icoFivefold = config.icoFivefold ?? null;
-        this.icoSixfold = config.iconSixfold ?? null;
+        this.icoSixfold = config.icoSixfold ?? null;
 
         this.maxDrag = config.maxDrag ?? 100;
         this.stopSpeedFactor = config.stopSpeedFactor ?? 1;

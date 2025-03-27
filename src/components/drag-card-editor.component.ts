@@ -58,20 +58,19 @@ export class DragCardEditor extends ScopedRegistryHost(LitElement) implements Lo
 
     return html`
       <div class="card-config">
-        <div class="tab">
-          <input type="checkbox" id="general" class="tab-checkbox">
-          <label class="tab-label" for="general">Card Settings</label>
-          <div class="tab-content">
-            <div class="config-row">
-              <mwc-formfield label="Standalone Card">
-                <mwc-switch
-                  .checked=${this._config.isStandalone ?? false}
-                  .configValue=${'isStandalone'}
-                  @change=${this._valueChanged}
-                ></mwc-switch>
-              </mwc-formfield>
-            </div>
+        <div class="tab-content">
+          <div class="config-row">
+            <mwc-formfield label="Standalone Card">
+              <mwc-switch
+                .checked=${this._config.isStandalone ?? false}
+                .configValue=${'isStandalone'}
+                @change=${this._valueChanged}
+              ></mwc-switch>
+            </mwc-formfield>
           </div>
+          ${this._renderTextInput('padding', 'Padding (e.g. 15px)', '')}
+          ${this._renderTextInput('cardHeight', 'Card Height (e.g. 150px)', '')}
+          ${this._renderTextInput('iconSize', 'Icon Size (e.g. 80%)', '')}
         </div>
 
         <div class="tab">
@@ -152,6 +151,21 @@ export class DragCardEditor extends ScopedRegistryHost(LitElement) implements Lo
           .label=${label}
           .value=${this._config?.[configKey] ?? defaultValue}
           .configValue=${configKey}
+          @input=${this._valueChanged}
+        ></mwc-textfield>
+      </div>
+    `;
+  }
+
+  private _renderTextInput(configKey: keyof DragCardConfig, label: string, placeholder: string): TemplateResult {
+    return html`
+      <div class="config-row">
+        <mwc-textfield
+          type="text"
+          .label=${label}
+          .value=${this._config?.[configKey] ?? ''}
+          .configValue=${configKey}
+          .placeholder=${placeholder}
           @input=${this._valueChanged}
         ></mwc-textfield>
       </div>

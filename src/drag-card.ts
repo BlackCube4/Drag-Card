@@ -22,7 +22,7 @@ interface DragCardConfig {
     icoTriple?: string;
     icoQuadruple?: string;
     icoFivefold?: string;
-    iconSixfold?: string;
+    icoSixfold?: string;
 
     maxDrag?: number;
     stopSpeedFactor?: number;
@@ -48,10 +48,7 @@ interface HomeAssistant {
     callService: (domain: string, service: string, data: { entity_id: string }) => Promise<void>;
 }
 
-class DragCard extends HTMLElement {
-    static getConfigElement(): HTMLElement {
-        return document.createElement('drag-card-editor');
-    }
+export class DragCard extends HTMLElement {
     private _hass: HomeAssistant | null = null;
     private isDragging: boolean = false;
     private initialX: number = 0;
@@ -274,11 +271,30 @@ class DragCard extends HTMLElement {
 
     setIcon(icon: string | null): void {
         if (!this.iconContainer) return;
+        
+        const iconElement = this.iconContainer.querySelector('#icon') as HTMLElement | null;
+        const imageElement = this.iconContainer.querySelector('#image') as HTMLImageElement | null;
+    
         if (icon != null) {
             if (icon.startsWith("/local/")) {
-                this.iconContainer.outerHTML = '<div id="iconContainer"><img id="image" src="' + icon + '" alt="Image"></img></div>';
+                // If it's a local image
+                if (imageElement) {
+                    imageElement.src = icon;
+                    imageElement.alt = 'Image';
+                    imageElement.style.display = 'block';
+                }
+                if (iconElement) {
+                    iconElement.style.display = 'none';
+                }
             } else {
-                this.iconContainer.outerHTML = '<div id="iconContainer"><ha-icon id="icon" icon="' + icon + '"></ha-icon></div>';
+                // If it's an MDI icon
+                if (iconElement) {
+                    (iconElement as any).icon = icon;
+                    iconElement.style.display = 'block';
+                }
+                if (imageElement) {
+                    imageElement.style.display = 'none';
+                }
             }
         }
     }
@@ -595,7 +611,7 @@ class DragCard extends HTMLElement {
         this.icoTriple = config.icoTriple ?? null;
         this.icoQuadruple = config.icoQuadruple ?? null;
         this.icoFivefold = config.icoFivefold ?? null;
-        this.icoSixfold = config.iconSixfold ?? null;
+        this.icoSixfold = config.icoSixfold ?? null;
 
         this.maxDrag = config.maxDrag ?? 100;
         this.stopSpeedFactor = config.stopSpeedFactor ?? 1;
@@ -617,16 +633,24 @@ class DragCard extends HTMLElement {
         this.connectedCallback();
     }
 
+    static getConfigElement(): HTMLElement {
+        return document.createElement('drag-card-editor');
+    }
+
     static getStubConfig(ha: any): DragCardConfig {
         return {
-            entityLeft: 'button.ir_control_left',
-            entityRight: 'button.ir_control_right',
             entityUp: 'button.ir_control_volume_up',
             entityDown: 'button.ir_control_volume_down',
+            entityLeft: 'button.ir_control_left',
+            entityRight: 'button.ir_control_right',
             entityCenter: 'button.ir_control_enter',
+            icoDefault: 'mdi:drag-variant',
+            icoUp: 'mdi:chevron-up',
+            icoDown: 'mdi:chevron-down',
+            icoLeft: 'mdi:chevron-left',
+            icoRight: 'mdi:chevron-right',
             maxMultiClicks: 2,
-            isStandalone: true,
-            icoDefault: "mdi:drag-variant",
+            isStandalone: true
         };
     }
 }
@@ -639,245 +663,264 @@ class DragCard extends HTMLElement {
 
 
 class DragCardEditor extends HTMLElement {
-    private _config?: DragCardConfig;
-    private _hass?: any;
+  private _config?: DragCardConfig;
+  private _hass?: any;
+  private _domains = ['button', 'script', 'light', 'switch', 'input_button'];
+
+  constructor() {
+    super();
+    this.attachShadow({ mode: 'open' });
+  }
+
+  setConfig(config: DragCardConfig) {
+    this._config = config;
+    this.render();
+  }
+
+  set hass(hass: any) {
+    this._hass = hass;
+    this.render();
+  }
+
+  connectedCallback() {
+    this.attachShadow({ mode: 'open' }); // First create shadow DOM
+    this.render(); // Then render content
+  }
   
-    constructor() {
-      super();
-      this.attachShadow({ mode: 'open' });
-    }
+  render() {
+    if (!this.shadowRoot || !this._config) return;
   
-    setConfig(config: DragCardConfig) {
-      this._config = config;
-      this.render();
-    }
+    this.shadowRoot.innerHTML = `
+      <style>
+        .tab {
+          border: 1px solid var(--divider-color, #e0e0e0);
+          border-radius: 4px;
+          margin-bottom: 16px;
+        }
+        .tab-label {
+          display: flex;
+          justify-content: space-between;
+          padding: 1em;
+          cursor: pointer;
+          font-weight: bold;
+          background-color: var(--secondary-background-color);
+        }
+        .tab-checkbox {
+          display: none;
+        }
+        .tab-content {
+          display: none;
+          padding: 1em;
+        }
+        .tab-checkbox:checked ~ .tab-content {
+          display: block;
+        }
+      </style>
   
-    set hass(hass: any) {
-      this._hass = hass;
-      this.render();
-    }
-  
-    render() {
-      if (!this.shadowRoot || !this._config) return;
-  
-      this.shadowRoot.innerHTML = `
-        <style>
-          :host {
-            display: block;
-            padding: 10px;
-          }
-          .config-container {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-          }
-          .config-section {
-            border: 1px solid var(--divider-color, #e0e0e0);
-            border-radius: 4px;
-            padding: 16px;
-          }
-          .config-section h3 {
-            margin: 0 0 16px 0;
-            font-size: 16px;
-            border-bottom: 1px solid var(--divider-color, #e0e0e0);
-            padding-bottom: 8px;
-          }
-          .config-row {
-            display: flex;
-            flex-direction: column;
-            margin-bottom: 16px;
-          }
-          ha-entity-picker,
-          ha-icon-picker,
-          paper-input {
-            width: 100%;
-          }
-          ha-formfield {
-            display: flex;
-            align-items: center;
-          }
-        </style>
-        <div class="config-container">
-          <div class="config-section">
-            <h3>Card Settings</h3>
-            <div class="config-row">
-              <ha-formfield label="Standalone Card">
-                <ha-switch
-                  id="standalone-switch"
-                  .checked="${this._config.isStandalone ?? false}"
-                ></ha-switch>
-              </ha-formfield>
-            </div>
+      <div class="config-container">
+        <!-- Standalone Toggle (existing) -->
+        <div class="config-section">
+          <h3>Card Settings</h3>
+          <div class="config-row">
+            <ha-formfield label="Standalone Card">
+              <ha-switch
+                id="standalone-switch"
+                .checked="${this._config.isStandalone ?? false}"
+              ></ha-switch>
+            </ha-formfield>
           </div>
+          ${this._renderTextInput('padding', 'Padding (e.g. 15px')}
+          ${this._renderTextInput('cardHeight', 'Card Height (e.g. 150px')}
+          ${this._renderTextInput('iconSize', 'Icon Size (e.g. 80%')}
+        </div>
   
-          <div class="config-section">
-            <h3>Entities</h3>
-            <div class="config-row">
-              <ha-entity-picker
-                id="entity-center"
-                label="Center Click Entity"
-                .hass="${this._hass}"
-                .value="${this._config.entityCenter ?? ''}"
-                .includeDomains="${JSON.stringify(['button', 'script', 'light', 'switch', 'input_button'])}"
-              ></ha-entity-picker>
-            </div>
-            <div class="config-row">
-              <ha-entity-picker
-                id="entity-up"
-                label="Swipe Up Entity"
-                .hass="${this._hass}"
-                .value="${this._config.entityUp ?? ''}"
-                .includeDomains="${JSON.stringify(['button', 'script', 'light', 'switch', 'input_button'])}"
-              ></ha-entity-picker>
-            </div>
-            <div class="config-row">
-              <ha-entity-picker
-                id="entity-down"
-                label="Swipe Down Entity"
-                .hass="${this._hass}"
-                .value="${this._config.entityDown ?? ''}"
-                .includeDomains="${JSON.stringify(['button', 'script', 'light', 'switch', 'input_button'])}"
-              ></ha-entity-picker>
-            </div>
-            <div class="config-row">
-              <ha-entity-picker
-                id="entity-left"
-                label="Swipe Left Entity"
-                .hass="${this._hass}"
-                .value="${this._config.entityLeft ?? ''}"
-                .includeDomains="${JSON.stringify(['button', 'script', 'light', 'switch', 'input_button'])}"
-              ></ha-entity-picker>
-            </div>
-            <div class="config-row">
-              <ha-entity-picker
-                id="entity-right"
-                label="Swipe Right Entity"
-                .hass="${this._hass}"
-                .value="${this._config.entityRight ?? ''}"
-                .includeDomains="${JSON.stringify(['button', 'script', 'light', 'switch', 'input_button'])}"
-              ></ha-entity-picker>
-            </div>
-            <div class="config-row">
-              <ha-entity-picker
-                id="entity-hold"
-                label="Hold Entity"
-                .hass="${this._hass}"
-                .value="${this._config.entityHold ?? ''}"
-                .includeDomains="${JSON.stringify(['button', 'script', 'light', 'switch', 'input_button'])}"
-              ></ha-entity-picker>
-            </div>
-          </div>
-  
-          <div class="config-section">
-            <h3>Icons</h3>
-            <div class="config-row">
-              <ha-icon-picker
-                id="icon-default"
-                label="Default Icon"
-                .value="${this._config.icoDefault ?? 'mdi:drag-variant'}"
-              ></ha-icon-picker>
-            </div>
-            <div class="config-row">
-              <ha-icon-picker
-                id="icon-center"
-                label="Center Icon"
-                .value="${this._config.icoCenter ?? ''}"
-              ></ha-icon-picker>
-            </div>
-          </div>
-  
-          <div class="config-section">
-            <h3>Advanced Settings</h3>
-            <div class="config-row">
-              <paper-input
-                id="max-drag"
-                label="Max Drag Distance (px)"
-                type="number"
-                .value="${this._config.maxDrag ?? 100}"
-              ></paper-input>
-            </div>
-            <div class="config-row">
-              <paper-input
-                id="deadzone"
-                label="Deadzone (px)"
-                type="number"
-                .value="${this._config.deadzone ?? 20}"
-              ></paper-input>
-            </div>
+        <!-- Entities Tab -->
+        <div class="tab">
+          <input type="checkbox" id="entities" class="tab-checkbox">
+          <label class="tab-label" for="entities">Entities</label>
+          <div class="tab-content">
+            ${this._renderEntityPicker('entityUp', 'Swipe Up Entity')}
+            ${this._renderEntityPicker('entityDown', 'Swipe Down Entity')}
+            ${this._renderEntityPicker('entityLeft', 'Swipe Left Entity')}
+            ${this._renderEntityPicker('entityRight', 'Swipe Right Entity')}
+            ${this._renderEntityPicker('entityCenter', 'Center Click Entity')}
+            ${this._renderEntityPicker('entityDouble', 'Double Click Entity')}
+            ${this._renderEntityPicker('entityHold', 'Hold Entity')}
           </div>
         </div>
-      `;
   
-      this.addEventListeners();
-    }
+        <!-- Icons Tab -->
+        <div class="tab">
+          <input type="checkbox" id="icons" class="tab-checkbox">
+          <label class="tab-label" for="icons">Icons</label>
+          <div class="tab-content">
+            ${this._renderIconPicker('icoDefault', 'Default Icon', 'mdi:drag-variant')}
+            ${this._renderIconPicker('icoUp', 'Up Icon', 'mdi:chevron-up')}
+            ${this._renderIconPicker('icoDown', 'Down Icon', 'mdi:chevron-down')}
+            ${this._renderIconPicker('icoLeft', 'Left Icon', 'mdi:chevron-left')}
+            ${this._renderIconPicker('icoRight', 'Right Icon', 'mdi:chevron-right')}
+            ${this._renderIconPicker('icoCenter', 'Center Icon')}
+            ${this._renderIconPicker('icoDouble', 'Double Icon')}
+            ${this._renderIconPicker('icoHold', 'Hold Icon')}
+          </div>
+        </div>
   
-    private addEventListeners() {
+        <!-- Advanced Settings Tab (existing) -->
+        <div class="tab">
+          <input type="checkbox" id="advanced" class="tab-checkbox">
+          <label class="tab-label" for="advanced">Advanced Settings</label>
+          <div class="tab-content">
+            ${this._renderNumberInput('maxDrag', 'Max Drag Distance (px)', 100)}
+            ${this._renderNumberInput('deadzone', 'Deadzone (px)', 20)}
+          </div>
+        </div>
+      </div>
+    `;
+    this.loadComponents();
+    this.addEventListeners();
+  }
+
+  private async _loadHomeAssistantComponent(component: string): Promise<void> {
+    try {
       if (!this.shadowRoot) return;
-  
-      // Standalone switch
-      const standaloneSwitch = this.shadowRoot.querySelector('#standalone-switch') as any;
-      if (standaloneSwitch) {
-        standaloneSwitch.addEventListener('change', (ev: Event) => this._valueChanged(ev, 'isStandalone'));
-      }
-  
-      // Entity pickers
-      const entityIds = [
-        'entity-center', 'entity-up', 'entity-down', 
-        'entity-left', 'entity-right', 'entity-hold'
-      ];
-      entityIds.forEach(id => {
-        const entityPicker = this.shadowRoot!.querySelector(`#${id}`) as any;
-        if (entityPicker) {
-          const configKey = id.replace('entity-', 'entity') as keyof DragCardConfig;
-          entityPicker.addEventListener('value-changed', (ev: Event) => this._valueChanged(ev, configKey));
-        }
-      });
-  
-      // Icon pickers
-      const iconIds = ['icon-default', 'icon-center'];
-      iconIds.forEach(id => {
-        const iconPicker = this.shadowRoot!.querySelector(`#${id}`) as any;
-        if (iconPicker) {
-          const configKey = id.replace('icon-', 'ico') as keyof DragCardConfig;
-          iconPicker.addEventListener('value-changed', (ev: Event) => this._valueChanged(ev, configKey));
-        }
-      });
-  
-      // Paper inputs
-      const inputIds = ['max-drag', 'deadzone'];
-      inputIds.forEach(id => {
-        const input = this.shadowRoot!.querySelector(`#${id}`) as any;
-        if (input) {
-          const configKey = id.replace('-', '') as keyof DragCardConfig;
-          input.addEventListener('value-changed', (ev: Event) => this._valueChanged(ev, configKey));
-        }
-      });
-    }
-  
-    private _valueChanged(ev: Event, key: keyof DragCardConfig) {
-      if (!this._config) return;
-  
-      const target = ev.target as any;
-      const value = target.checked !== undefined ? target.checked : target.value;
       
-      if (this._config[key] === value) return;
-  
-      const newConfig = {
-        ...this._config,
-        [key]: value,
-      };
-  
-      this._config = newConfig;
-  
-      this.dispatchEvent(
-        new CustomEvent("config-changed", {
-          detail: { config: newConfig },
-          bubbles: true,
-          composed: true
-        })
-      );
+      await customElements.whenDefined(component);
+      
+      const registry = (this.shadowRoot as any).customElements;
+      if (!registry) return;
+
+      if (!registry.get(component)) {
+        const globalElement = customElements.get(component);
+        if (globalElement) {
+          registry.define(component, globalElement);
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to load ${component}:`, error);
     }
   }
+
+  private async loadComponents() {
+    if (!(window as any).loadCardHelpers) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    await this._loadHomeAssistantComponent("ha-entity-picker");
+    await this._loadHomeAssistantComponent("ha-icon-picker");
+  }
+
+  // In _renderEntityPicker
+  private _renderEntityPicker(configKey: keyof DragCardConfig, label: string): string {
+    return `
+      <div class="config-row">
+        <ha-entity-picker
+          id="${configKey}"
+          label="${label}"
+          .hass="${this._hass}"
+          .value="${this._config![configKey] ?? ''}"
+          .includeDomains="${JSON.stringify(this._domains)}"
+        ></ha-entity-picker>
+      </div>
+    `;
+  }
+
+  // In _renderIconPicker
+  private _renderIconPicker(configKey: keyof DragCardConfig, label: string, placeholder = ''): string {
+    return `
+      <div class="config-row">
+        <ha-icon-picker
+          id="${configKey}"
+          label="${label}"
+          .value="${this._config![configKey] ?? placeholder}"
+        ></ha-icon-picker>
+      </div>
+    `;
+  }
+
+  // In _renderNumberInput
+  private _renderNumberInput(configKey: keyof DragCardConfig, label: string, defaultValue: number): string {
+    return `
+      <div class="config-row">
+        <paper-input
+          id="${configKey}"
+          label="${label}"
+          type="number"
+          .value="${this._config![configKey] ?? defaultValue}"
+        ></paper-input>
+      </div>
+    `;
+  }
+
+  // In _renderTextInput
+  private _renderTextInput(configKey: keyof DragCardConfig, label: string): string {
+    return `
+      <div class="config-row">
+        <paper-input
+          id="${configKey}"
+          label="${label}"
+          type="text"
+          .value="${this._config![configKey] ?? ''}"
+        ></paper-input>
+      </div>
+    `;
+  }
+  
+  private addEventListeners() {
+    if (!this.shadowRoot) return;
+
+    // New text/number inputs
+    const inputIds = ['padding', 'cardHeight', 'iconSize', 'maxDrag', 'deadzone'];
+    inputIds.forEach(id => {
+      const input = this.shadowRoot!.querySelector(`#${id}`) as any;
+      if (input) {
+        input.addEventListener('value-changed', (ev: Event) => this._valueChanged(ev, id as keyof DragCardConfig));
+      }
+    });
+
+    // New entity pickers
+    const entityKeys = ['entityUp', 'entityDown', 'entityLeft', 'entityRight', 'entityDouble'];
+    entityKeys.forEach(key => {
+      const picker = this.shadowRoot!.querySelector(`#${key}`) as any;
+      if (picker) {
+        picker.addEventListener('value-changed', (ev: Event) => this._valueChanged(ev, key as keyof DragCardConfig));
+      }
+    });
+
+    // New icon pickers
+    const iconKeys = ['icoUp', 'icoDown', 'icoLeft', 'icoRight', 'icoDouble', 'icoHold'];
+    iconKeys.forEach(key => {
+      const picker = this.shadowRoot!.querySelector(`#${key}`) as any;
+      if (picker) {
+        picker.addEventListener('value-changed', (ev: Event) => this._valueChanged(ev, key as keyof DragCardConfig));
+      }
+    });
+  }
+
+  private _valueChanged(ev: Event, key: keyof DragCardConfig) {
+    if (!this._config) return;
+    console.log("Config changed:", key, (ev.target as any).value);
+
+    const target = ev.target as any;
+    const value = target.checked !== undefined ? target.checked : target.value;
+    
+    if (this._config[key] === value) return;
+
+    const newConfig = {
+      ...this._config,
+      [key]: value,
+    };
+
+    this._config = newConfig;
+
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config: newConfig },
+        bubbles: true,
+        composed: true
+      })
+    );
+  }
+}
 
 customElements.define("drag-card", DragCard);
 customElements.define('drag-card-editor', DragCardEditor);
