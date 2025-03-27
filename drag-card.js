@@ -66,21 +66,28 @@ class DragCard extends HTMLElement {
                 #ripple.expanding {
                     transition: transform 0.2s, opacity 0.05s;
                 }
-                #icon {
+                #iconContainer {    
                     position: absolute;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-60%, -50%);
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
                     pointer-events: none;
-                    --mdc-icon-size: 120%;
+                    // padding: 10px;
+                    box-sizing: border-box;
+                }
+                #icon {
+                    width: 80%;
+                    height: 80%;
+                    --mdc-icon-size: 100%;
+                    // pointer-events: none;
                 }
                 #image {
-                    position: absolute;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    pointer-events: none;
-                    height: 60%;
+                    // pointer-events: none;
+                    object-fit: contain;
                 }
             </style>
             <ha-card id="dragButtonContainer">
@@ -463,9 +470,6 @@ class DragCard extends HTMLElement {
         this.width = config.width;
         this.backgroundColor = config.backgroundColor;
         this.borderRadius = config.borderRadius;
-
-        this.iconHeight = config.iconHeight;
-        this.iconWidth = config.iconWidth;
 
         this.connectedCallback()
     }

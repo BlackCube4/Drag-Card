@@ -55,4 +55,4 @@ A button for Home Assistant which can be dragged in four directions to trigger f
 | icoTriple | The icon that gets displayed when triple clicking on the button.
 | icoQuadruple | The icon that gets displayed when quadruple clicking on the button.
 | icoFivefold | The icon that gets displayed when fivefold clicking on the button.
-| icoSixfold | The icon that gets displayed when double sixfold on the button.
+| icoSixfold | The icon that gets displayed when sixfold clicking on the button.
