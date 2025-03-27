@@ -1,242 +1,219 @@
+import { LitElement, html, css, TemplateResult, CSSResult } from 'lit';
+import { customElement, property, state } from 'lit/decorators.js';
+import { ScopedRegistryHost } from '@lit-labs/scoped-registry-mixin';
+import { HomeAssistant, LovelaceCardEditor, fireEvent } from 'custom-card-helpers';
 import { DragCardConfig } from '../interfaces/drag-card-config.interface';
 
-export class DragCardEditor extends HTMLElement {
-    private _config?: DragCardConfig;
-    private _hass?: any;
+@customElement('drag-card-editor')
+export class DragCardEditor extends ScopedRegistryHost(LitElement) implements LovelaceCardEditor {
+  @property({ attribute: false }) public hass?: HomeAssistant;
+  
+  @state() private _config?: DragCardConfig;
+  
+  private _initialized = false;
+  private _domains = ['button', 'script', 'light', 'switch', 'input_button'];
 
-    constructor() {
-        super();
-        this.attachShadow({ mode: 'open' });
+  static elementDefinitions = {
+    // Add any custom element definitions if needed
+  }
+
+  firstUpdated(): void {
+    this._loadHomeAssistantComponent("ha-entity-picker", { type: "entities", entities: [] });
+    this._loadHomeAssistantComponent("ha-icon-picker", { type: "entities", entities: [] });
+  }
+
+  async _loadHomeAssistantComponent(component: string, card: {}): Promise<void> {
+    const registry = (this.shadowRoot as any)?.customElements;
+    if (!registry || registry.get(component)) {
+      return;
+    } 
+
+    const ch = await (window as any).loadCardHelpers();
+    const c = await ch.createCardElement(card);
+    await c.constructor.getConfigElement();
+    
+    registry.define(component, window.customElements.get(component));
+  }
+
+  public setConfig(config: any): void {
+    this._config = config as DragCardConfig;
+  }
+
+  protected shouldUpdate(): boolean {
+    if (!this._initialized) {
+      this._initialize();
+    }
+    return true;
+  }
+
+  private _initialize(): void {
+    if (this.hass === undefined || this._config === undefined) return;
+    this._initialized = true;
+  }
+
+  protected render(): TemplateResult | void {
+    if (!this.hass || !this._config) {
+      return html``;
     }
 
-    setConfig(config: DragCardConfig) {
-        this._config = config;
-        this.render();
-    }
-
-    set hass(hass: any) {
-        this._hass = hass;
-        this.render();
-    }
-
-    render() {
-        if (!this.shadowRoot || !this._config) return;
-
-        this.shadowRoot.innerHTML = `
-        <style>
-            :host {
-            display: block;
-            padding: 10px;
-            }
-            .config-container {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            }
-            .config-section {
-            border: 1px solid var(--divider-color, #e0e0e0);
-            border-radius: 4px;
-            padding: 16px;
-            }
-            .config-section h3 {
-            margin: 0 0 16px 0;
-            font-size: 16px;
-            border-bottom: 1px solid var(--divider-color, #e0e0e0);
-            padding-bottom: 8px;
-            }
-            .config-row {
-            display: flex;
-            flex-direction: column;
-            margin-bottom: 16px;
-            }
-            ha-entity-picker,
-            ha-icon-picker,
-            paper-input {
-            width: 100%;
-            }
-            ha-formfield {
-            display: flex;
-            align-items: center;
-            }
-        </style>
-        <div class="config-container">
-            <div class="config-section">
-            <h3>Card Settings</h3>
+    return html`
+      <div class="card-config">
+        <div class="tab">
+          <input type="checkbox" id="general" class="tab-checkbox">
+          <label class="tab-label" for="general">Card Settings</label>
+          <div class="tab-content">
             <div class="config-row">
-                <ha-formfield label="Standalone Card">
-                <ha-switch
-                    id="standalone-switch"
-                    .checked="${this._config.isStandalone ?? false}"
-                ></ha-switch>
-                </ha-formfield>
+              <mwc-formfield label="Standalone Card">
+                <mwc-switch
+                  .checked=${this._config.isStandalone ?? false}
+                  .configValue=${'isStandalone'}
+                  @change=${this._valueChanged}
+                ></mwc-switch>
+              </mwc-formfield>
             </div>
-            </div>
-
-            <div class="config-section">
-            <h3>Entities</h3>
-            <div class="config-row">
-                <ha-entity-picker
-                id="entity-center"
-                label="Center Click Entity"
-                .hass="${this._hass}"
-                .value="${this._config.entityCenter ?? ''}"
-                .includeDomains="${JSON.stringify(['button', 'script', 'light', 'switch', 'input_button'])}"
-                ></ha-entity-picker>
-            </div>
-            <div class="config-row">
-                <ha-entity-picker
-                id="entity-up"
-                label="Swipe Up Entity"
-                .hass="${this._hass}"
-                .value="${this._config.entityUp ?? ''}"
-                .includeDomains="${JSON.stringify(['button', 'script', 'light', 'switch', 'input_button'])}"
-                ></ha-entity-picker>
-            </div>
-            <div class="config-row">
-                <ha-entity-picker
-                id="entity-down"
-                label="Swipe Down Entity"
-                .hass="${this._hass}"
-                .value="${this._config.entityDown ?? ''}"
-                .includeDomains="${JSON.stringify(['button', 'script', 'light', 'switch', 'input_button'])}"
-                ></ha-entity-picker>
-            </div>
-            <div class="config-row">
-                <ha-entity-picker
-                id="entity-left"
-                label="Swipe Left Entity"
-                .hass="${this._hass}"
-                .value="${this._config.entityLeft ?? ''}"
-                .includeDomains="${JSON.stringify(['button', 'script', 'light', 'switch', 'input_button'])}"
-                ></ha-entity-picker>
-            </div>
-            <div class="config-row">
-                <ha-entity-picker
-                id="entity-right"
-                label="Swipe Right Entity"
-                .hass="${this._hass}"
-                .value="${this._config.entityRight ?? ''}"
-                .includeDomains="${JSON.stringify(['button', 'script', 'light', 'switch', 'input_button'])}"
-                ></ha-entity-picker>
-            </div>
-            <div class="config-row">
-                <ha-entity-picker
-                id="entity-hold"
-                label="Hold Entity"
-                .hass="${this._hass}"
-                .value="${this._config.entityHold ?? ''}"
-                .includeDomains="${JSON.stringify(['button', 'script', 'light', 'switch', 'input_button'])}"
-                ></ha-entity-picker>
-            </div>
-            </div>
-
-            <div class="config-section">
-            <h3>Icons</h3>
-            <div class="config-row">
-                <ha-icon-picker
-                id="icon-default"
-                label="Default Icon"
-                .value="${this._config.icoDefault ?? 'mdi:drag-variant'}"
-                ></ha-icon-picker>
-            </div>
-            <div class="config-row">
-                <ha-icon-picker
-                id="icon-center"
-                label="Center Icon"
-                .value="${this._config.icoCenter ?? ''}"
-                ></ha-icon-picker>
-            </div>
-            </div>
-
-            <div class="config-section">
-            <h3>Advanced Settings</h3>
-            <div class="config-row">
-                <paper-input
-                id="max-drag"
-                label="Max Drag Distance (px)"
-                type="number"
-                .value="${this._config.maxDrag ?? 100}"
-                ></paper-input>
-            </div>
-            <div class="config-row">
-                <paper-input
-                id="deadzone"
-                label="Deadzone (px)"
-                type="number"
-                .value="${this._config.deadzone ?? 20}"
-                ></paper-input>
-            </div>
-            </div>
+          </div>
         </div>
-        `;
 
-        this.addEventListeners();
-    }
+        <div class="tab">
+          <input type="checkbox" id="entities" class="tab-checkbox">
+          <label class="tab-label" for="entities">Entities</label>
+          <div class="tab-content">
+            ${this._renderEntityPicker('entityUp', 'Swipe Up Entity')}
+            ${this._renderEntityPicker('entityDown', 'Swipe Down Entity')}
+            ${this._renderEntityPicker('entityLeft', 'Swipe Left Entity')}
+            ${this._renderEntityPicker('entityRight', 'Swipe Right Entity')}
+            ${this._renderEntityPicker('entityCenter', 'Center Click Entity')}
+            ${this._renderEntityPicker('entityDouble', 'Double Click Entity')}
+            ${this._renderEntityPicker('entityHold', 'Hold Entity')}
+          </div>
+        </div>
 
-    private addEventListeners() {
-        if (!this.shadowRoot) return;
+        <div class="tab">
+          <input type="checkbox" id="icons" class="tab-checkbox">
+          <label class="tab-label" for="icons">Icons</label>
+          <div class="tab-content">
+            ${this._renderIconPicker('icoDefault', 'Default Icon', 'mdi:drag-variant')}
+            ${this._renderIconPicker('icoUp', 'Up Icon', 'mdi:chevron-up')}
+            ${this._renderIconPicker('icoDown', 'Down Icon', 'mdi:chevron-down')}
+            ${this._renderIconPicker('icoLeft', 'Left Icon', 'mdi:chevron-left')}
+            ${this._renderIconPicker('icoRight', 'Right Icon', 'mdi:chevron-right')}
+            ${this._renderIconPicker('icoCenter', 'Center Icon')}
+            ${this._renderIconPicker('icoDouble', 'Double Icon')}
+            ${this._renderIconPicker('icoHold', 'Hold Icon')}
+          </div>
+        </div>
 
-        // Standalone switch
-        const standaloneSwitch = this.shadowRoot.querySelector('#standalone-switch') as any;
-        if (standaloneSwitch) {
-        standaloneSwitch.addEventListener('change', (ev: Event) => this._valueChanged(ev, 'isStandalone'));
-        }
+        <div class="tab">
+          <input type="checkbox" id="advanced" class="tab-checkbox">
+          <label class="tab-label" for="advanced">Advanced Settings</label>
+          <div class="tab-content">
+            ${this._renderNumberInput('maxDrag', 'Max Drag Distance (px)', 100)}
+            ${this._renderNumberInput('deadzone', 'Deadzone (px)', 20)}
+          </div>
+        </div>
+      </div>
+    `;
+  }
 
-        // Entity pickers
-        const entityIds = [
-        'entity-center', 'entity-up', 'entity-down', 
-        'entity-left', 'entity-right', 'entity-hold'
-        ];
-        entityIds.forEach(id => {
-        const entityPicker = this.shadowRoot!.querySelector(`#${id}`) as any;
-        if (entityPicker) {
-            const configKey = id.replace('entity-', 'entity') as keyof DragCardConfig;
-            entityPicker.addEventListener('value-changed', (ev: Event) => this._valueChanged(ev, configKey));
-        }
-        });
+  private _renderEntityPicker(configKey: keyof DragCardConfig, label: string): TemplateResult {
+    return html`
+      <div class="config-row">
+        <ha-entity-picker
+          .hass=${this.hass}
+          .value=${this._config?.[configKey] ?? ''}
+          .configValue=${configKey}
+          .label=${label}
+          .includeDomains=${JSON.stringify(this._domains)}
+          @value-changed=${this._valueChanged}
+        ></ha-entity-picker>
+      </div>
+    `;
+  }
 
-        // Icon pickers
-        const iconIds = ['icon-default', 'icon-center'];
-        iconIds.forEach(id => {
-        const iconPicker = this.shadowRoot!.querySelector(`#${id}`) as any;
-        if (iconPicker) {
-            const configKey = id.replace('icon-', 'ico') as keyof DragCardConfig;
-            iconPicker.addEventListener('value-changed', (ev: Event) => this._valueChanged(ev, configKey));
-        }
-        });
+  private _renderIconPicker(configKey: keyof DragCardConfig, label: string, placeholder = ''): TemplateResult {
+    return html`
+      <div class="config-row">
+        <ha-icon-picker
+          .value=${this._config?.[configKey] ?? ''}
+          .configValue=${configKey}
+          .label=${label}
+          .placeholder=${placeholder}
+          @value-changed=${this._valueChanged}
+        ></ha-icon-picker>
+      </div>
+    `;
+  }
 
-        // Paper inputs
-        const inputIds = ['max-drag', 'deadzone'];
-        inputIds.forEach(id => {
-        const input = this.shadowRoot!.querySelector(`#${id}`) as any;
-        if (input) {
-            const configKey = id.replace('-', '') as keyof DragCardConfig;
-            input.addEventListener('value-changed', (ev: Event) => this._valueChanged(ev, configKey));
-        }
-        });
-    }
+  private _renderNumberInput(configKey: keyof DragCardConfig, label: string, defaultValue: number): TemplateResult {
+    return html`
+      <div class="config-row">
+        <mwc-textfield
+          type="number"
+          .label=${label}
+          .value=${this._config?.[configKey] ?? defaultValue}
+          .configValue=${configKey}
+          @input=${this._valueChanged}
+        ></mwc-textfield>
+      </div>
+    `;
+  }
 
-    private _valueChanged(ev: Event, key: keyof DragCardConfig) {
-        if (!this._config) return;
+  private _valueChanged(ev: Event): void {
+    const target = ev.target as any;
+    const configValue = target.configValue as keyof DragCardConfig;
+    const value = target.checked !== undefined 
+      ? target.checked 
+      : (target.value || '');
 
-        const target = ev.target as any;
-        const value = target.checked !== undefined ? target.checked : target.value;
-        
-        if (this._config[key] === value) return;
+    if (!this._config) return;
 
-        const newConfig = {
-        ...this._config,
-        [key]: value,
-        };
+    if (this._config[configValue] === value) return;
 
-        this._config = newConfig;
+    const newConfig = {
+      ...this._config,
+      [configValue]: value,
+    };
 
-        this.dispatchEvent(
-            new CustomEvent("config-changed", {
-                detail: { config: newConfig },
-                bubbles: true,
-                composed: true
-            })
-        );
-    }
+    this._config = newConfig;
+
+    fireEvent(this, 'config-changed', { config: newConfig });
+  }
+
+  static get styles(): CSSResult {
+    return css`
+      .card-config {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .config-row {
+        margin-bottom: 16px;
+      }
+      .tab {
+        border: 1px solid var(--divider-color, #e0e0e0);
+        border-radius: 4px;
+      }
+      .tab-label {
+        display: flex;
+        justify-content: space-between;
+        padding: 1em;
+        cursor: pointer;
+        font-weight: bold;
+        background-color: var(--secondary-background-color);
+      }
+      .tab-checkbox {
+        display: none;
+      }
+      .tab-content {
+        display: none;
+        padding: 1em;
+      }
+      .tab-checkbox:checked ~ .tab-content {
+        display: block;
+      }
+      mwc-textfield, ha-entity-picker, ha-icon-picker {
+        width: 100%;
+      }
+    `;
+  }
 }

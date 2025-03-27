@@ -34,25 +34,25 @@ A button for Home Assistant which can be dragged in four directions to trigger f
 | entityLeft | Button/Switch/Skript that gets activated/toggled when swiping left on button.
 | entityRight | Button/Switch/Skript that gets activated/toggled when swiping right on button.
 | entityCenter | Button/Switch/Skript that gets activated/toggled when clicking on the button.
-| entityHold | Button/Switch/Skript that gets activated/toggled when clicking the button for a long time without swiping.
 | entityDouble | Button/Switch/Skript that gets activated/toggled when double clicking on the button.
 | entityTriple | Button/Switch/Skript that gets activated/toggled when triple clicking up on the button.
 | entityQuadruple | Button/Switch/Skript that gets activated/toggled when quadruple clicking up on the button.
 | entityFivefold | Button/Switch/Skript that gets activated/toggled when fivefold clicking up on the button.
 | entitySixfold | Button/Switch/Skript that gets activated/toggled when sixfold clicking up on the button.
+| entityHold | Button/Switch/Skript that gets activated/toggled when clicking the button for a long time without swiping.
 
 #### Icon Options
 | Name | Description |
 |------|-------------|
 | icoDefault | The icon that gets displayed by default.
 | icoUp | The icon that gets displayed when swiping up.
-| icoRight | The icon that gets displayed when swiping down.
 | icoDown | The icon that gets displayed when swiping left.
 | icoLeft | The icon that gets displayed when swiping right.
+| icoRight | The icon that gets displayed when swiping down.
 | icoCenter | The icon that gets displayed when clicking on the button.
-| icoHold | The icon that gets displayed when holding down the button.
 | icoDouble | The icon that gets displayed when double clicking on the button.
 | icoTriple | The icon that gets displayed when triple clicking on the button.
 | icoQuadruple | The icon that gets displayed when quadruple clicking on the button.
 | icoFivefold | The icon that gets displayed when fivefold clicking on the button.
 | icoSixfold | The icon that gets displayed when sixfold clicking on the button.
+| icoHold | The icon that gets displayed when holding down the button.

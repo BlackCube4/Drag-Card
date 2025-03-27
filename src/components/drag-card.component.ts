@@ -573,14 +573,18 @@ export class DragCard extends HTMLElement {
 
     static getStubConfig(ha: any): DragCardConfig {
         return {
-            entityLeft: 'button.ir_control_left',
-            entityRight: 'button.ir_control_right',
             entityUp: 'button.ir_control_volume_up',
             entityDown: 'button.ir_control_volume_down',
+            entityLeft: 'button.ir_control_left',
+            entityRight: 'button.ir_control_right',
             entityCenter: 'button.ir_control_enter',
+            icoDefault: 'mdi:drag-variant',
+            icoUp: 'mdi:chevron-up',
+            icoDown: 'mdi:chevron-down',
+            icoLeft: 'mdi:chevron-left',
+            icoRight: 'mdi:chevron-right',
             maxMultiClicks: 2,
-            isStandalone: true,
-            icoDefault: "mdi:drag-variant",
+            isStandalone: true
         };
     }
-}// Just replace the existing interface declarations with imports from the respective files
+}
