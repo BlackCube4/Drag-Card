@@ -1,3 +1,9 @@
+import { LitElement, html, css } from 'lit';
+import { customElement, property, state } from 'lit/decorators.js';
+import { HomeAssistant } from 'custom-card-helpers';
+import { fireEvent } from 'custom-card-helpers';
+
+// These are the variables that can be configured by the visual config and are edited by the card
 interface DragCardConfig {
     entityUp?: string;
     entityDown?: string;
@@ -8,8 +14,6 @@ interface DragCardConfig {
     entityDouble?: string;
     entityTriple?: string;
     entityQuadruple?: string;
-    entityFivefold?: string;
-    entitySixfold?: string;
 
     icoDefault?: string;
     icoUp?: string;
@@ -21,623 +25,501 @@ interface DragCardConfig {
     icoDouble?: string;
     icoTriple?: string;
     icoQuadruple?: string;
-    icoFivefold?: string;
-    icoSixfold?: string;
 
-    maxDrag?: number;
-    stopSpeedFactor?: number;
-    repeatTime?: number;
-    holdTime?: number;
-    maxMultiClicks?: number;
-    multiClickTime?: number;
+    lockNonEntityDirs?: boolean;
+    maxDrag?: number;                   // The maximum distance the button can be dragged in px
+    returnTime?: number;                // Return animation duration in ms
+    springDamping?: number;             // Controls how bouncy the spring is (>=2 -> switch to different function without bounce at all)
+
+    repeatTime?: number;                // rapid fire interval time in ms
+    holdTime?: number;                  // time until hold action gets activated in ms
+    multiClickTime?: number;            // time between clicks to activate multi click in ms
     deadzone?: number;
 
-    isStandalone?: boolean;
     padding?: string;
+    cardWidth?: string;
     cardHeight?: string;
 
-    height?: string;
-    width?: string;
-    backgroundColor?: string;
-    borderRadius?: string;
+    cardBackgroundColor?: string;
+    cardBorderRadius?: string;
+    cardBoxShadow?: string;
+
+    buttonWidth?: string;
+    buttonHeight?: string;
+
+    buttonBackgroundColor?: string;
+    buttonBorderRadius?: string;
+    buttonBoxShadow?: string;
 
     iconSize?: string;
 }
 
-interface HomeAssistant {
-    callService: (domain: string, service: string, data: { entity_id: string }) => Promise<void>;
-}
+@customElement('drag-card')
+export class DragCard extends LitElement {
+    @property({ attribute: false }) 
+    hass?: HomeAssistant;
 
-export class DragCard extends HTMLElement {
-    private _hass: HomeAssistant | null = null;
-    private isDragging: boolean = false;
-    private initialX: number = 0;
-    private initialY: number = 0;
-    private currentX: number = 0;
-    private currentY: number = 0;
-    private diffX: number = 0;
-    private diffY: number = 0;
-    private offsetX: number = 0;
-    private offsetY: number = 0;
-    private actionCounter: number = 0;
-    private distanceMouse: number = 0;
-    private clickCount: number = 0;
+    @state()
+    private currentIcon = '';
+    @state()
+    private config!: DragCardConfig;
+
+    private isRippleAnimating = false;
+    private isHover = false;
+    private buttonRealPos = { x: 0, y: 0 };             // "Real" position (without scaling)
+    private mouseOffset = { x: 0, y: 0 };               // Mouse offset
+    private buttonOrigin = { x: 0, y: 0 };              // Original position
+    
+    private distance = 0;
+    private actionCounter = 0;
+    private clickCount = 0;
     private lastClick: number | null = null;
-    private lastClickType: Event | null = null;
+    private maxMultiClicks = 1;
+    private isHoldAction = false;
 
-    // Configuration properties
-    private entityUp: string | null = null;
-    private entityDown: string | null = null;
-    private entityLeft: string | null = null;
-    private entityRight: string | null = null;
-    private entityCenter: string | null = null;
-    private entityHold: string | null = null;
-    private entityDouble: string | null = null;
-    private entityTriple: string | null = null;
-    private entityQuadruple: string | null = null;
-    private entityFivefold: string | null = null;
-    private entitySixfold: string | null = null;
-
-    // Icon properties
-    private icoDefault: string | null = null;
-    private icoUp: string | null = null;
-    private icoRight: string | null = null;
-    private icoDown: string | null = null;
-    private icoLeft: string | null = null;
-    private icoCenter: string | null = null;
-    private icoHold: string | null = null;
-    private icoDouble: string | null = null;
-    private icoTriple: string | null = null;
-    private icoQuadruple: string | null = null;
-    private icoFivefold: string | null = null;
-    private icoSixfold: string | null = null;
-
-    // Drag and interaction properties
-    private maxDrag: number = 100;
-    private stopSpeedFactor: number = 1;
-    private repeatTime: number = 200;
-    private holdTime: number = 800;
-    private maxMultiClicks: number = 2;
-    private multiClickTime: number = 300;
-    private deadzone: number = 20;
-    private stopSpeed: number = 0;
-
-    // UI properties
-    private isStandalone: boolean = false;
-    private padding: string | null = null;
-    private cardHeight: string | null = null;
-    private height: string | null = null;
-    private width: string | null = null;
-    private backgroundColor: string | null = null;
-    private borderRadius: string | null = null;
-    private iconSize: string = "80%";
-
-    // DOM elements
-    private card: HTMLElement | null = null;
-    private dragButtonOrigin: HTMLElement | null = null;
-    private dragButton: HTMLElement | null = null;
-    private rippleElement: HTMLElement | null = null;
-    private computedStyle: CSSStyleDeclaration | null = null;
-    private rippleComputedStyle: CSSStyleDeclaration | null = null;
-    private iconContainer: HTMLElement | null = null;
-
-    // Intervals and timeouts
-    private repeatHoldDetection: number | null = null;
+    private holdDetection: number | null = null;
     private repeatAction: number | null = null;
     private handleClick: number | null = null;
-    private handleFadeOut: number | null = null;
-    private interval: number | null = null;
     private iconTimeout: number | null = null;
+    private animationFrameID: number | null = null;
 
-    // Typing additional properties
-    private startTime: number = 0;
-    private rippleRadius: number = 0;
-    private newScale: number = 0;
-    private currentTop: number = 0;
-    private currentLeft: number = 0;
+    private button!: HTMLElement;
 
-    constructor() {
-        super();
-        this.stopSpeed = this.maxDrag * this.stopSpeedFactor;
+    private boundDragHandler = this.drag.bind(this);
+    private boundEndDragHandler = this.endDrag.bind(this);
+
+    firstUpdated() {
+        this.button = this.shadowRoot!.querySelector('.drag-button') as HTMLElement;
+        this.initOrigin();
     }
 
-    set hass(hass: HomeAssistant) {
-        this._hass = hass;
+    // Here is the css - style part of the code
+    static styles = css`
+        ha-card {
+            padding: var(--drag-card-padding);
+            height: var(--drag-card-height);
+            width: var(--drag-card-width);
+
+            background-color: var(--drag-card-background-color, var(--ha-card-background, var(--card-background-color)));
+            border-radius: var(--drag-card-border-radius, var(--ha-card-border-radius));
+            box-shadow: var(--drag-card-box-shadow, var(--ha-card-box-shadow));
+
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .drag-button {
+            position: relative;
+            top: 0;
+            left: 0;
+            height: var(--drag-button-height);
+            width: var(--drag-button-width);
+
+            background-color: var(--drag-button-background-color, var(--ha-card-background, var(--card-background-color)));
+            border-radius: var(--drag-button-border-radius, var(--ha-card-border-radius));
+            box-shadow: var(--drag-button-box-shadow, var(--ha-card-box-shadow));
+
+            touch-action: none;
+            overflow: hidden;
+            cursor: pointer;
+            z-index: 0;
+        }
+
+        .drag-button-visual {
+
+        }
+
+        .hover {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-color: rgb(255, 255, 255);
+            opacity: 0;
+        }
+
+        .ripple {
+            position: absolute;
+            transform: translate(-50%, -50%);
+            border-radius: 50%;
+            background-color: rgb(255, 255, 255);
+            opacity: 0;
+            box-shadow: 0 0 100px 100px rgb(255, 255, 255); //offset-x offset-y softness shadow-size color;
+        }
+        
+        icon-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+        }
+
+        .icon {
+            width: var(--drag-card-icon-size, 80%);
+            height: var(--drag-card-icon-size, 80%);
+            --mdc-icon-size: 100%;
+        }
+
+        .image {
+            object-fit: contain;
+            width: var(--drag-card-icon-size, 80%);
+            height: var(--drag-card-icon-size, 80%);
+        }
+    `;
+
+    // Default configuration for values that are not modified by the user
+    // This method is called when:
+    //   1. The card is first loaded with its configuration
+    //   2. The configuration is updated (e.g., through the card editor)
+    //   3. The card is restored from the dashboard
+
+    setConfig(config: DragCardConfig) {
+        if (!config) throw new Error('Invalid configuration');
+
+        this.config = {
+            maxDrag: 100,
+            returnTime: 200,
+            springDamping: 2,
+            repeatTime: 200,
+            holdTime: 800,
+            multiClickTime: 300,
+            deadzone: 20,
+            lockNonEntityDirs: true,
+            ...config
+        };
+
+        this.style.setProperty('--drag-card-padding', this.config.padding ?? '15px');
+        this.style.setProperty('--drag-card-width', this.config.cardWidth ?? '100%');
+        this.style.setProperty('--drag-card-height', this.config.cardHeight ?? '150px');
+
+        if (this.config.cardBackgroundColor) { this.style.setProperty('--drag-card-background-color', this.config.cardBackgroundColor); }
+        if (this.config.cardBorderRadius) { this.style.setProperty('--drag-card-border-radius', this.config.cardBorderRadius); }
+        if (this.config.cardBoxShadow) { this.style.setProperty('--drag-card-box-shadow', this.config.cardBoxShadow); }
+
+        this.style.setProperty('--drag-button-width', this.config.buttonWidth ?? '100%');
+        this.style.setProperty('--drag-button-height', this.config.buttonHeight ?? '100%');
+
+        if (this.config.buttonBackgroundColor) { this.style.setProperty('--drag-button-background-color', this.config.buttonBackgroundColor); }
+        if (this.config.buttonBorderRadius) { this.style.setProperty('--drag-button-border-radius', this.config.buttonBorderRadius); }
+        if (this.config.buttonBoxShadow) { this.style.setProperty('--drag-button-box-shadow', this.config.buttonBoxShadow); }
+
+        this.style.setProperty('--drag-card-icon-size', this.config.iconSize ?? '80%');
+        
+        this.currentIcon = this.config.icoDefault || "";
+
+        // Calculate maxMultiClicks based on configured entities
+        this.maxMultiClicks = 1; // Default to single click
+        if (this.config.entityQuadruple) {
+            this.maxMultiClicks = 4;
+        } else if (this.config.entityTriple) {
+            this.maxMultiClicks = 3;
+        } else if (this.config.entityDouble) {
+            this.maxMultiClicks = 2;
+        }
+
+        console.log("maxMultiClicks: ", this.maxMultiClicks);
+
+        this.initOrigin()
     }
 
-    connectedCallback(): void {
-        this.innerHTML = `
-            <style>
-                #dragButtonContainer {
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    height: 150px;
-                    padding: 15px;
-                }
-                #dragButtonOrigin {
-                    width: 100%;
-                    height: 100%;
-                }
-                #dragButton {
-                    position: relative;
-                    border-radius: var(--ha-card-border-radius);
-                    top: 0px;
-                    left: 0px;
-                    width: 100%;
-                    height: 100%;
-                    background-color: var(--card-background-color);
-                    box-shadow: var(--ha-card-box-shadow);
-                    touch-action: none;
-                    overflow: hidden;
-                    cursor: pointer;
-                    z-index: 0;
-                }
-                #ripple {
-                    position: absolute;
-                    border-radius: 50%;
-                    background-color: rgb(255, 255, 255);
-                    opacity: 0;
-                    pointer-events: none;
-                    transition: opacity 0.2s;
-                }
-                #ripple.expanding {
-                    transition: transform 0.2s, opacity 0.05s;
-                }
-                #iconContainer {    
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    pointer-events: none;
-                    // padding: 10px;
-                    box-sizing: border-box;
-                }
-                #icon {
-                    width: ${this.iconSize};
-                    height: ${this.iconSize};
-                    --mdc-icon-size: 100%;
-                    // pointer-events: none;
-                }
-                #image {
-                    // pointer-events: none;
-                    object-fit: contain;
-                }
-            </style>
-            <ha-card id="dragButtonContainer">
-                <div id="dragButtonOrigin">
-                    <div id="dragButton">
-                        <div id="ripple"></div>
-                        <div id="iconContainer">
-                            <ha-icon id="icon"></ha-icon>
-                            <img id="image" alt="Image"></img>
-                        </div>
-                    </div>
+    // This is the render part (html) here the main structure of the card is defined
+    render() {
+        if (!this.config) return html`<div>No configuration</div>`;
+
+        return html`
+            <ha-card>
+                <div class="drag-button"
+                    @touchstart=${this.startDrag}
+                    @mousedown=${this.startDrag}>
+                    ${this.renderIcon()}
                 </div>
             </ha-card>
         `;
-        
-        this.card = this.querySelector("#dragButtonContainer");
-        this.dragButtonOrigin = this.querySelector("#dragButtonOrigin");
-        this.dragButton = this.querySelector("#dragButton");
-        this.rippleElement = this.querySelector("#ripple");
-        this.iconContainer = this.querySelector("#iconContainer");
-
-        if (!this.card || !this.dragButtonOrigin || !this.dragButton || !this.rippleElement || !this.iconContainer) return;
-
-        if (this.cardHeight != null) {
-            this.card.style.height = this.cardHeight;
-        }
-        if (this.padding != null) {
-            this.card.style.padding = this.padding;
-        }
-        
-        if (this.isStandalone == false) {
-            this.card.outerHTML = this.card.innerHTML;
-        }
-        
-        if (this.maxDrag == null) { this.maxDrag = 100; }
-        if (this.stopSpeedFactor == null) { this.stopSpeedFactor = 1; }
-        if (this.repeatTime == null) { this.repeatTime = 200; }
-        if (this.holdTime == null) { this.holdTime = 800; }
-        if (this.maxMultiClicks == null) { this.maxMultiClicks = 2; }
-        if (this.multiClickTime == null) { this.multiClickTime = 300; }
-        if (this.deadzone == null) { this.deadzone = 20; }
-        
-        this.stopSpeed = this.maxDrag * this.stopSpeedFactor;
-
-        if (this.height != null) { this.dragButtonOrigin.style.height = this.height; }
-        if (this.width != null) { this.dragButtonOrigin.style.width = this.width; }
-
-        if (this.backgroundColor != null) { this.dragButton.style.backgroundColor = this.backgroundColor; }
-        if (this.borderRadius != null) { this.dragButton.style.borderRadius = this.borderRadius; }
-
-        if (this.icoDefault != null) {
-            this.setIcon(this.icoDefault);
-        } else if (this.icoCenter != null) {
-            this.setIcon(this.icoCenter);
-        } else {
-            this.setIcon('mdi:alert');
-        }
-
-        this.computedStyle = window.getComputedStyle(this.dragButton);
-        this.rippleComputedStyle = window.getComputedStyle(this.rippleElement);
-        this.addEventListeners();
     }
 
-    setIcon(icon: string | null): void {
-        if (!this.iconContainer) return;
+    renderIcon() {
+        if (!this.currentIcon) return html``;
         
-        const iconElement = this.iconContainer.querySelector('#icon') as HTMLElement | null;
-        const imageElement = this.iconContainer.querySelector('#image') as HTMLImageElement | null;
+        return this.currentIcon.startsWith("/local/") 
+            ? html`<icon-container><img class="image" src=${this.currentIcon} alt="Image"></img></icon-container>`
+            : html`<icon-container><ha-icon class="icon" .icon=${this.currentIcon}></ha-icon></icon-container>`;
+    }
+
+    private initOrigin() {
+        if (!this.button) return;
+        const rect = this.button.getBoundingClientRect();
+        this.buttonOrigin = { 
+            x: rect.left + rect.width/2, 
+            y: rect.top + rect.height/2 }; 
+        this.buttonRealPos = { 
+            x: this.buttonOrigin.x, 
+            y: this.buttonOrigin.y };
+        }
     
-        if (icon != null) {
-            if (icon.startsWith("/local/")) {
-                // If it's a local image
-                if (imageElement) {
-                    imageElement.src = icon;
-                    imageElement.alt = 'Image';
-                    imageElement.style.display = 'block';
-                }
-                if (iconElement) {
-                    iconElement.style.display = 'none';
-                }
-            } else {
-                // If it's an MDI icon
-                if (iconElement) {
-                    (iconElement as any).icon = icon;
-                    iconElement.style.display = 'block';
-                }
-                if (imageElement) {
-                    imageElement.style.display = 'none';
-                }
-            }
+    /*##################################################
+    #                                                  #
+    #           Start of the drag action               #
+    #                                                  #
+    ##################################################*/
+
+    // This function is called when the mouse or touch is pressed down
+    // It sets the initial position and starts the drag action
+    private startDrag(event: any) {
+        //console.log("startDrag");
+        this.button.style.zIndex = '1';
+        this.button.style.transform = `scale(0.95)`;
+
+        // Cancel any ongoing return animation
+        if (this.animationFrameID) {
+            cancelAnimationFrame(this.animationFrameID);
+            this.animationFrameID = null;
         }
-    }
-
-    addEventListeners(): void {
-        if (!this.dragButton) return;
-        this.dragButton.addEventListener("touchstart", this.handleTouchStart.bind(this), { passive: true });
-        this.dragButton.addEventListener("touchmove", this.handleTouchMove.bind(this), { passive: true });
-        this.dragButton.addEventListener("touchend", this.handleTouchEnd.bind(this), { passive: true });
-        this.dragButton.addEventListener("mousedown", this.handleMouseDown.bind(this));
-        document.addEventListener("mousemove", this.handleMouseMove.bind(this));
-        document.addEventListener("mouseup", this.handleMouseUp.bind(this));
-    }
-
-    handleTouchStart(event: TouchEvent): void {
-        const touch = event.touches[0];
-        if (!this.dragButton) return;
-        this.offsetX = touch.clientX - this.dragButton.offsetLeft;
-        this.offsetY = touch.clientY - this.dragButton.offsetTop;
-        this.handleStart(touch);
-    }
-
-    handleTouchMove(event: TouchEvent): void {
-        if (this.isDragging) {
-            this.currentX = event.touches[0].clientX;
-            this.currentY = event.touches[0].clientY;
-            this.handleDrag();
-        }
-    }
-
-    handleTouchEnd(event: TouchEvent): void {
-        this.lastClickType = event;
-        this.handleEnd();
-    }
-
-    handleMouseDown(event: MouseEvent): void {
-        if (Date.now() - (this.lastClick || 0) < 200 && this.lastClickType instanceof TouchEvent)
-            return;
-        if (!this.dragButton) return;
-        this.offsetX = event.offsetX;
-        this.offsetY = event.offsetY;
-        this.handleStart(event);
-    }
-
-    handleMouseMove(event: MouseEvent): void {
-        if (this.isDragging) {
-            this.currentX = event.clientX;
-            this.currentY = event.clientY;
-            this.handleDrag();
-        }
-    }
-
-    handleMouseUp(event: MouseEvent): void { 
-        this.handleEnd(); 
-    }
-
-    handleStart(event: MouseEvent | Touch): void {
-        if (!this.dragButton || !this.rippleElement || !this.computedStyle) return;
         
-        this.dragButton.style.zIndex = '1';
-        this.initialX = event.clientX;
-        this.initialY = event.clientY;
+        // Get the mouse/finger position relative to the doc
+        const mouseDocument = {
+            x: event.touches ? event.touches[0].clientX : event.clientX,
+            y: event.touches ? event.touches[0].clientY : event.clientY };
 
-        const buttonWidth = parseInt(this.computedStyle.getPropertyValue("width"), 10);
-        const buttonHeight = parseInt(this.computedStyle.getPropertyValue("height"), 10);
+        // Calculate offset between mouse and button center
+        this.mouseOffset = {
+            x: mouseDocument.x - this.buttonRealPos.x,
+            y: mouseDocument.y - this.buttonRealPos.y };
 
-        this.rippleRadius = buttonWidth < buttonHeight 
-            ? buttonHeight * 0.2 
-            : buttonWidth * 0.2;
+        document.addEventListener('mousemove', this.boundDragHandler);
+        document.addEventListener('mouseup', this.boundEndDragHandler);
+        document.addEventListener('touchmove', this.boundDragHandler);
+        document.addEventListener('touchend', this.boundEndDragHandler);
 
-        this.rippleElement.style.left = `${this.offsetX - this.rippleRadius}px`;
-        this.rippleElement.style.top = `${this.offsetY - this.rippleRadius}px`;
-        this.rippleElement.style.width = `${this.rippleRadius * 2}px`;
-        this.rippleElement.style.height = `${this.rippleRadius * 2}px`;
-
-        let distEdge: number;
-        if (this.offsetX > buttonWidth / 2) {
-            if (this.offsetY > buttonHeight / 2)
-                distEdge = Math.sqrt((0 - this.offsetX) ** 2 + (0 - this.offsetY) ** 2);
-            else
-                distEdge = Math.sqrt((0 - this.offsetX) ** 2 + (buttonHeight - this.offsetY) ** 2);
-        } else {
-            if (this.offsetY > buttonHeight / 2)
-                distEdge = Math.sqrt((buttonWidth - this.offsetX) ** 2 + (0 - this.offsetY) ** 2);
-            else
-                distEdge = Math.sqrt((buttonWidth - this.offsetX) ** 2 + (buttonHeight - this.offsetY) ** 2);
-        }
-
-        this.newScale = distEdge / this.rippleRadius;
-        
-        this.rippleElement.classList.add('expanding');
-        this.rippleElement.style.opacity = '0.06';
-        this.rippleElement.style.transform = `scale(${this.newScale})`;
-
-        this.isDragging = true;
         this.actionCounter = 0;
-        this.distanceMouse = 0;
-        this.diffX = 0;
-        this.diffY = 0;
-        this.startTime = Date.now();
+        this.isHoldAction = false;
 
-        this.repeatHoldDetection = window.setInterval(() => {
-            if (Date.now() - this.startTime >= this.holdTime) {
-                this.repeatAction = window.setInterval(() => {
-                    this.detectSwipeDirection(this.deadzone * 2, 1);
-                }, this.repeatTime);
-                if (this.repeatHoldDetection) clearInterval(this.repeatHoldDetection);
-            }
-        }, 60);
+        this.holdDetection = window.setTimeout(() => {
+            this.isHoldAction = true;
+            this.repeatAction = window.setInterval(() => {
+                this.detectSwipeDirection((this.config.deadzone!) * 2, 1);
+            }, this.config.repeatTime!);
+        }, this.config.holdTime!);
     }
 
-    handleDrag(): void {
-        if (!this.dragButton) return;
-        
-        this.dragButton.style.zIndex = '1';
-        this.diffX = this.currentX - this.initialX;
-        this.diffY = this.currentY - this.initialY;
-        this.distanceMouse = Math.sqrt(this.diffX ** 2 + this.diffY ** 2);
-        const normalizedX = this.diffX / this.distanceMouse;
-        const normalizedY = this.diffY / this.distanceMouse;
-        const dragDistance = (1 - (this.stopSpeed / (this.distanceMouse + this.stopSpeed))) * this.maxDrag;
-        this.dragButton.style.cursor = 'grabbing';
+    // This function is called when the mouse or touch is moved
+    // It calculates the distance moved and updates the position of the button
+    private drag(event: any) {
+        event.preventDefault();
+        document.body.style.cursor = 'grabbing';
+        this.button.style.cursor = 'grabbing';
 
-        if ((normalizedY > 0 && this.entityDown != null) || (normalizedY < 0 && this.entityUp != null)) {
-            this.dragButton.style.top = `${normalizedY * dragDistance}px`;
-        } else {
-            this.dragButton.style.top = '0px';
-        }
-        if ((normalizedX > 0 && this.entityRight != null) || (normalizedX < 0 && this.entityLeft != null)) {
-            this.dragButton.style.left = `${normalizedX * dragDistance}px`;
-        } else {
-            this.dragButton.style.left = '0px';
-        }
+        // Get the mouse/finger position relative to the doc
+        const mouseDocument = { x: event.touches ? event.touches[0].clientX : event.clientX,
+                                y: event.touches ? event.touches[0].clientY : event.clientY };
+        
+        // Update real position (without scaling)
+        this.buttonRealPos = { x: mouseDocument.x - this.mouseOffset.x,
+                                y: mouseDocument.y - this.mouseOffset.y }
+        
+        // Calculate distance from origin
+        const d = { x: this.buttonRealPos.x - this.buttonOrigin.x,
+                    y: this.buttonRealPos.y - this.buttonOrigin.y };
+        this.distance = Math.sqrt(d.x*d.x + d.y*d.y);
+
+        // Apply resistance
+        let scale = this.config.maxDrag! / (this.config.maxDrag! + this.distance);
+
+        // Update displayed position with scaling
+        this.updatePosition(d.x * scale, d.y * scale, 0.95);
     }
+    
 
-    detectSwipeDirection(deadzone: number, holdMode: number): void {
-        if (!this.dragButton) return;
-        
+    // This function detects the swipe direction/multi-click and changes the icon
+    // It also triggers callService() for the configured entity
+    private detectSwipeDirection(deadzone: number, holdMode: number) {
+        //console.log("detectSwipeDirection")
+        if (!this.config || !this.hass) return;
+
         if (this.iconTimeout) clearTimeout(this.iconTimeout);
 
-        if (this.distanceMouse < deadzone) {
+        if (this.distance < deadzone) {
             if (holdMode == 1 && this.actionCounter == 0) {
-                console.log("hold");
-                if (this.entityHold != null) {
-                    this.setIcon(this.icoHold);
-                    this.callCorrectService(this.entityHold);
+                console.log("hold")
+                if (this.config.entityHold) {
+                    this.currentIcon = this.config.icoHold || this.currentIcon;
+                    this.callService(this.config.entityHold);
                 }
-                this.handleEnd();
+                this.endDrag();
             }
             if (holdMode == 0) {
                 this.clickCount++;
                 this.lastClick = Date.now();
                 if (this.handleClick) clearInterval(this.handleClick);
+
                 this.handleClick = window.setInterval(() => {
-                    if (Date.now() - (this.lastClick || 0) >= this.multiClickTime || this.clickCount == this.maxMultiClicks) {
+                    if (Date.now() - this.lastClick! >= (this.config.multiClickTime!) || this.clickCount == (this.maxMultiClicks)) {
                         console.log('clickCount: ' + this.clickCount);
-                        if (this.clickCount == 1 && this.entityCenter != null) {
-                            this.setIcon(this.icoCenter);
-                            this.callCorrectService(this.entityCenter);
-                        } else if (this.clickCount == 2 && this.entityDouble != null) {
-                            this.setIcon(this.icoDouble);
-                            this.callCorrectService(this.entityDouble);
-                        } else if (this.clickCount == 3 && this.entityTriple != null) {
-                            this.setIcon(this.icoTriple);
-                            this.callCorrectService(this.entityTriple);
-                        } else if (this.clickCount == 4 && this.entityQuadruple != null) {
-                            this.setIcon(this.icoQuadruple);
-                            this.callCorrectService(this.entityQuadruple);
-                        } else if (this.clickCount == 5 && this.entityFivefold != null) {
-                            this.setIcon(this.icoFivefold);
-                            this.callCorrectService(this.entityFivefold);
-                        } else if (this.clickCount == 6 && this.entitySixfold != null) {
-                            this.setIcon(this.icoSixfold);
-                            this.callCorrectService(this.entitySixfold);
+
+                        switch (this.clickCount) {
+                            case 1:
+                                this.callService(this.config.entityCenter!);
+                                this.currentIcon = this.config.icoCenter || '';
+                                break;
+                            case 2:
+                                this.callService(this.config.entityDouble!);
+                                this.currentIcon = this.config.icoDouble || '';
+                                break;
+                            case 3:
+                                this.callService(this.config.entityTriple!);
+                                this.currentIcon = this.config.icoTriple || '';
+                                break;
+                            case 4:
+                                this.callService(this.config.entityQuadruple!);
+                                this.currentIcon = this.config.icoQuadruple || '';
+                                break;
                         }
+
                         this.clickCount = 0;
-                        if (this.handleClick) clearInterval(this.handleClick);
+                        clearInterval(this.handleClick!);
                     }
                 }, 20);
             }
-        } else if (Math.abs(this.diffX) > Math.abs(this.diffY)) {
-            if (this.diffX > 0) {
-                console.log("swipe right");
-                if (this.entityRight != null) {
-                    this.setIcon(this.icoRight);
-                    this.callCorrectService(this.entityRight);
+        } else if (Math.abs(this.buttonRealPos.x) > Math.abs(this.buttonRealPos.y)) {
+            if (this.buttonRealPos.x > 0) {
+                if (this.config.entityRight) {
+                    this.currentIcon = this.config.icoRight || this.currentIcon;
+                    this.callService(this.config.entityRight);
+                    console.log("swipe right ")
                 }
             } else {
-                console.log("swipe left");
-                if (this.entityLeft != null) {
-                    this.setIcon(this.icoLeft);
-                    this.callCorrectService(this.entityLeft);
+                if (this.config.entityLeft) {
+                    this.currentIcon = this.config.icoLeft || this.currentIcon;
+                    this.callService(this.config.entityLeft);
+                    console.log("swipe left ")
                 }
             }
         } else {
-            if (this.diffY > 0) {
-                console.log("swipe down");
-                if (this.entityDown != null) {
-                    this.setIcon(this.icoDown);
-                    this.callCorrectService(this.entityDown);
+            if (this.buttonRealPos.y > 0) {
+                if (this.config.entityDown) {
+                    this.currentIcon = this.config.icoDown || this.currentIcon;
+                    this.callService(this.config.entityDown);
+                    console.log("swipe down ")
                 }
             } else {
-                console.log("swipe up");
-                if (this.entityUp != null) {
-                    this.setIcon(this.icoUp);
-                    this.callCorrectService(this.entityUp);
+                if (this.config.entityUp) {
+                    this.currentIcon = this.config.icoUp || this.currentIcon;
+                    this.callService(this.config.entityUp);
+                    console.log("swipe up ")
                 }
             }
         }
+        
         this.actionCounter++;
         this.iconTimeout = window.setTimeout(() => {
-            this.setIcon(this.icoDefault);
+            this.currentIcon = this.config?.icoDefault || this.config?.icoCenter || 'mdi:alert';
         }, 3000);
     }
 
-    callCorrectService(id: string): void {
-        const parts = id.split(".");
-        if (!this._hass) return;
+    // This function uses the Home Assistant API to call the correct service for the entity
+    private callService(entityId: string) {
+        if (!this.hass || !entityId) return;
 
-        if (parts[0] === "button") {
-            this._hass.callService('button', 'press', { entity_id: id });
-        } else if (parts[0] === "script") {
-            this._hass.callService('script', 'turn_on', { entity_id: id });
-        } else {
-            this._hass.callService(parts[0], 'toggle', { entity_id: id });
+        const [domain] = entityId.split('.');
+        switch (domain) {
+            case 'button':
+                this.hass.callService('button', 'press', { entity_id: entityId });
+                break;
+            case 'script':
+                this.hass.callService('script', 'turn_on', { entity_id: entityId });
+                break;
+            default:
+                this.hass.callService(domain, 'toggle', { entity_id: entityId });
         }
     }
 
-    handleEnd(): void {
-        if (!this.dragButton || !this.rippleElement) return;
+    // This function is called when the mouse or touch is released
+    // It resets the button position and stops the drag action
+    private endDrag() {
+        //console.log("endDrag");
+        document.body.style.cursor = '';
+        this.button.style.cursor = 'pointer';
+        document.removeEventListener('mousemove', this.boundDragHandler);
+        document.removeEventListener('mouseup', this.boundEndDragHandler);
+        document.removeEventListener('touchmove', this.boundDragHandler);
+        document.removeEventListener('touchend', this.boundEndDragHandler);
         
-        this.dragButton.style.cursor = 'pointer';
-        if (this.isDragging) {
-            this.isDragging = false;
-            if (this.repeatAction == null)
-                this.detectSwipeDirection(this.deadzone, 0);
-            
-            if (this.repeatAction) clearInterval(this.repeatAction);
-            if (this.repeatHoldDetection) clearInterval(this.repeatHoldDetection);
-            if (this.interval) clearInterval(this.interval);
-            this.repeatAction = null;
-            if (this.handleFadeOut) clearInterval(this.handleFadeOut);
-            
-            this.handleFadeOut = window.setInterval(() => {
-                if (Date.now() - this.startTime >= 200) {
-                    this.rippleElement?.classList.remove('expanding');
-                    if (this.rippleElement) {
-                        this.rippleElement.style.width = `${this.newScale * this.rippleRadius * 2}px`;
-                        this.rippleElement.style.height = `${this.newScale * this.rippleRadius * 2}px`;
-                        this.rippleElement.style.left = `${this.offsetX - this.newScale * this.rippleRadius}px`;
-                        this.rippleElement.style.top = `${this.offsetY - this.newScale * this.rippleRadius}px`;
-                        this.rippleElement.style.transform = 'scale(1)';
-                        this.rippleElement.style.opacity = '0';
-                    }
-                    if (this.handleFadeOut) clearInterval(this.handleFadeOut);
-                }
-            }, 20);
-            this.easeOut(200);
+        if (this.isHoldAction == false) this.detectSwipeDirection(this.config.deadzone!, 0);
+
+        if (this.repeatAction) clearInterval(this.repeatAction); 
+        if (this.holdDetection) clearTimeout(this.holdDetection);
+
+        // Animate return if not at origin
+        if (this.buttonRealPos.x !== this.buttonOrigin.x || this.buttonRealPos.y !== this.buttonOrigin.y) {
+            this.animateReturn();
         }
     }
 
-    easeOut(duration: number): void {
-        if (!this.dragButton || !this.computedStyle) return;
-        
-        const topValue = this.computedStyle.getPropertyValue("top");
-        this.currentTop = parseInt(topValue, 10);
-        const leftValue = this.computedStyle.getPropertyValue("left");
-        this.currentLeft = parseInt(leftValue, 10);
-        const distanceDiv = Math.sqrt(this.currentTop ** 2 + this.currentLeft ** 2);
-        const steptime = 15;
-        const loops = duration / steptime;
-        const normalizedX = this.currentTop / distanceDiv;
-        const normalizedY = this.currentLeft / distanceDiv;
-        let i = 0;
-        
-        this.interval = window.setInterval(() => {
-            let time = i / loops;
-            let currentValue = (time - 1) ** 2;
-            i++;
+    // This function animates the button back to the center of the card
+    private animateReturn() {
+        const startButtonReturn = { x : this.buttonRealPos.x,
+                                    y : this.buttonRealPos.y };
+        const startTime = performance.now();
+
+        const animate = (timestamp: number) => {
+            // Check if we're still supposed to animate (might have been interrupted by new drag)
+            if (!this.animationFrameID) return;
+
+            const elapsed = timestamp - startTime;
+            const progress = Math.min(elapsed / this.config.returnTime!, 1);
             
-            this.dragButton!.style.top = `${normalizedX * (currentValue * distanceDiv)}px`;
-            this.dragButton!.style.left = `${normalizedY * (currentValue * distanceDiv)}px`;
-            
-            if (time >= 1) {
-                this.dragButton!.style.top = '0px';
-                this.dragButton!.style.left = '0px';
-                this.dragButton!.style.zIndex = '0';
-                if (this.interval) clearInterval(this.interval);
+            let eased: number = 0;
+            // Spring easing - starts fast and ends with a gentle settle
+            if (this.config.springDamping! >= 2) {
+                // without bounce
+                eased = 1 - Math.pow(1 - progress, 1.675);
             }
-        }, steptime);
+            else {
+                //spring like
+                eased = 1 - Math.pow(2, -10 * progress) * Math.cos(progress * Math.PI * 2 / this.config.springDamping!);
+            }
+            
+            // Update real position
+            this.buttonRealPos = { x : startButtonReturn.x + (this.buttonOrigin.x - startButtonReturn.x) * eased,
+                                     y : startButtonReturn.y + (this.buttonOrigin.y - startButtonReturn.y) * eased };
+            
+            // Calculate distance from origin
+            const d = { x: this.buttonRealPos.x - this.buttonOrigin.x,
+                        y: this.buttonRealPos.y - this.buttonOrigin.y};
+            this.distance = Math.sqrt(d.x*d.x + d.y*d.y);
+
+            // Apply resistance
+            let scale = this.config.maxDrag! / (this.config.maxDrag! + this.distance);
+
+            // Update displayed position with scaling
+            this.updatePosition(d.x * scale, d.y * scale, 1);
+
+            if (progress < 1) this.animationFrameID = requestAnimationFrame(animate);
+            else this.button.style.zIndex = '0';
+        }
+        this.animationFrameID = requestAnimationFrame(animate);
     }
 
-    setConfig(config: DragCardConfig): void {
-        this.entityUp = config.entityUp ?? null;
-        this.entityDown = config.entityDown ?? null;
-        this.entityLeft = config.entityLeft ?? null;
-        this.entityRight = config.entityRight ?? null;
-        this.entityCenter = config.entityCenter ?? null;
-        this.entityHold = config.entityHold ?? null;
-        this.entityDouble = config.entityDouble ?? null;
-        this.entityTriple = config.entityTriple ?? null;
-        this.entityQuadruple = config.entityQuadruple ?? null;
-        this.entityFivefold = config.entityFivefold ?? null;
-        this.entitySixfold = config.entitySixfold ?? null;
-        
-        this.icoDefault = config.icoDefault ?? null;
-        this.icoUp = config.icoUp ?? null;
-        this.icoRight = config.icoRight ?? null;
-        this.icoDown = config.icoDown ?? null;
-        this.icoLeft = config.icoLeft ?? null;
-        this.icoCenter = config.icoCenter ?? null;
-        this.icoHold = config.icoHold ?? null;
-        this.icoDouble = config.icoDouble ?? null;
-        this.icoTriple = config.icoTriple ?? null;
-        this.icoQuadruple = config.icoQuadruple ?? null;
-        this.icoFivefold = config.icoFivefold ?? null;
-        this.icoSixfold = config.icoSixfold ?? null;
+    private updatePosition(x: number, y: number, s: number) {
+        // Reset pos for non existent entity directions
+        if(this.config.lockNonEntityDirs){
+            if((y > 0 && this.config.entityDown == null) || (y < 0 && this.config.entityUp == null))
+                y = 0;
+            if((x > 0 && this.config.entityRight == null) || (x < 0 && this.config.entityLeft == null))
+                x = 0;
+        }
 
-        this.maxDrag = config.maxDrag ?? 100;
-        this.stopSpeedFactor = config.stopSpeedFactor ?? 1;
-        this.repeatTime = config.repeatTime ?? 200;
-        this.holdTime = config.holdTime ?? 800;
-        this.maxMultiClicks = config.maxMultiClicks ?? 2;
-        this.multiClickTime = config.multiClickTime ?? 300;
-        this.deadzone = config.deadzone ?? 20;
-
-        this.isStandalone = config.isStandalone ?? false;
-        this.padding = config.padding ?? null;
-        this.cardHeight = config.cardHeight ?? null;
-        this.height = config.height ?? null;
-        this.width = config.width ?? null;
-        this.backgroundColor = config.backgroundColor ?? null;
-        this.borderRadius = config.borderRadius ?? null;
-        this.iconSize = config.iconSize ?? "80%";
-
-        this.connectedCallback();
+        // Update displayed position with scaling applied
+        this.button.style.transform = `translate(${x}px, ${y}px) scale(${s})`;
     }
 
-    static getConfigElement(): HTMLElement {
-        return document.createElement('drag-card-editor');
+    // Required by Lovelace to show configuration UI
+    static getConfigElement() {
+        return document.createElement("drag-card-editor");
     }
 
-    static getStubConfig(ha: any): DragCardConfig {
+    // Default configuration for new cards with all the default values for variables
+    static getStubConfig(): Partial<DragCardConfig> {
         return {
             entityUp: 'button.ir_control_volume_up',
             entityDown: 'button.ir_control_volume_down',
@@ -649,8 +531,7 @@ export class DragCard extends HTMLElement {
             icoDown: 'mdi:chevron-down',
             icoLeft: 'mdi:chevron-left',
             icoRight: 'mdi:chevron-right',
-            maxMultiClicks: 2,
-            isStandalone: true
+            icoCenter: 'mdi:circle-medium',
         };
     }
 }
@@ -662,276 +543,232 @@ export class DragCard extends HTMLElement {
 
 
 
-class DragCardEditor extends HTMLElement {
-  private _config?: DragCardConfig;
-  private _hass?: any;
-  private _domains = ['button', 'script', 'light', 'switch', 'input_button'];
 
-  constructor() {
-    super();
-    this.attachShadow({ mode: 'open' });
-  }
 
-  setConfig(config: DragCardConfig) {
-    this._config = config;
-    this.render();
-  }
 
-  set hass(hass: any) {
-    this._hass = hass;
-    this.render();
-  }
 
-  connectedCallback() {
-    this.attachShadow({ mode: 'open' }); // First create shadow DOM
-    this.render(); // Then render content
-  }
-  
-  render() {
-    if (!this.shadowRoot || !this._config) return;
-  
-    this.shadowRoot.innerHTML = `
-      <style>
+
+/*##################################################
+#                                                  #
+#               Drag-Card Editor                   #
+#                                                  #
+##################################################*/
+
+// This is the support class for the visual configuration editor
+@customElement('drag-card-editor')
+export class DragCardEditor extends LitElement {
+    @property({ attribute: false }) hass?: HomeAssistant;
+    @property({ attribute: false }) config?: DragCardConfig;
+
+    // These are filters for entity selector drop-downs
+    private _domains = ['button', 'script', 'light', 'switch', 'cover'];
+    private _domains2 = ['light', 'cover'];
+
+    static styles = css`
+        .config-section { margin-bottom: 16px; }
+        .config-row { margin-bottom: 8px; }
         .tab {
-          border: 1px solid var(--divider-color, #e0e0e0);
-          border-radius: 4px;
-          margin-bottom: 16px;
+            border: 1px solid var(--divider-color);
+            border-radius: 4px;
+            margin-bottom: 16px;
         }
         .tab-label {
-          display: flex;
-          justify-content: space-between;
-          padding: 1em;
-          cursor: pointer;
-          font-weight: bold;
-          background-color: var(--secondary-background-color);
+            display: flex;
+            justify-content: space-between;
+            padding: 1em;
+            cursor: pointer;
+            font-weight: bold;
+            background-color: var(--secondary-background-color);
         }
-        .tab-checkbox {
-          display: none;
+        .tab-content { padding: 1em; }
+        ha-formfield { display: block; margin-bottom: 8px; }
+    `;
+
+    setConfig(config: DragCardConfig) {
+        this.config = config;
+    }
+
+    // This funciton gets called when anything about the config gets changed
+    private _valueChanged(event: Event) {
+        if (!this.config || !this.hass) return;
+        const target = event.target as any;
+        const configKey = target.configValue as keyof DragCardConfig;
+        if (!configKey) return;
+        
+        // List of numeric configuration keys
+        const numericKeys = [
+            'maxDrag', 'returnTime', 'springDamping', 'repeatTime', 
+            'holdTime', 'multiClickTime', 'deadzone'
+        ];
+
+        // Get the value, checking for empty string
+        let value: any;
+        if ('checked' in target) {
+            value = target.checked;
+        } else {
+            value = (event as CustomEvent).detail?.value ?? target.value;
+            // Convert empty string to undefined
+            if (value == "" || value == " " || value == "none" || value == "-") { value = undefined; }
+            // Convert to number if this is a numeric field
+            else if (numericKeys.includes(configKey)) { value = Number(value); }
+
         }
-        .tab-content {
-          display: none;
-          padding: 1em;
-        }
-        .tab-checkbox:checked ~ .tab-content {
-          display: block;
-        }
-      </style>
-  
-      <div class="config-container">
-        <!-- Standalone Toggle (existing) -->
-        <div class="config-section">
-          <h3>Card Settings</h3>
-          <div class="config-row">
-            <ha-formfield label="Standalone Card">
-              <ha-switch
-                id="standalone-switch"
-                .checked="${this._config.isStandalone ?? false}"
-              ></ha-switch>
+
+        if (this.config[configKey] === value) return;
+        const newConfig = { ...this.config, [configKey]: value };
+        this.config = newConfig;
+        this.requestUpdate();
+        fireEvent(this, "config-changed", { config: newConfig });
+    }      
+      
+    // This is the html structure for the visual configuration editor
+    render() {
+        if (!this.config || !this.hass) return html`<div>No configuration</div>`;
+
+        return html`
+            <div class="config-container">
+                <div class="config-section">
+                    <h3>Card Settings</h3>
+                    ${this.renderTextInput('padding', 'Padding')}
+                    ${this.renderTextInput('cardWidth', 'Card Width')}
+                    ${this.renderTextInput('cardHeight', 'Card Height')}
+                    ${this.renderTextInput('cardBackgroundColor', 'Background Color')}
+                    ${this.renderTextInput('cardBorderRadius', 'Border Radius')}
+                    ${this.renderTextInput('cardBoxShadow', 'Box Shadow')} 
+
+                    ${this.renderTextInput('buttonHeight', 'Button Height')}
+                    ${this.renderTextInput('buttonWidth', 'Button Width')}
+                    ${this.renderTextInput('buttonBackgroundColor', 'Button Background Color')}
+                    ${this.renderTextInput('buttonBorderRadius', 'Button Border Radius')}
+                    ${this.renderTextInput('buttonBoxShadow', 'Button Box Shadow')}
+                    
+                    ${this.renderTextInput('iconSize', 'Icon Size')}
+                </div>
+
+                <div class="tab">
+                    <div class="tab-label">Entities</div>
+                    <div class="tab-content">
+                        ${this.renderEntityPicker('entityUp', 'Swipe Up')}
+                        ${this.renderEntityPicker('entityDown', 'Swipe Down')}
+                        ${this.renderEntityPicker('entityLeft', 'Swipe Left')}
+                        ${this.renderEntityPicker('entityRight', 'Swipe Right')}
+                        ${this.renderEntityPicker('entityCenter', 'Center Click')}
+                        ${this.renderEntityPicker('entityDouble', 'Double Click')}
+                        ${this.renderEntityPicker('entityHold', 'Hold Action')}
+                    </div>
+                </div>
+
+                <div class="tab">
+                    <div class="tab-label">Icons</div>
+                    <div class="tab-content">
+                        ${this.renderIconPicker('icoDefault', 'Default Icon')}
+                        ${this.renderIconPicker('icoUp', 'Up Icon')}
+                        ${this.renderIconPicker('icoDown', 'Down Icon')}
+                        ${this.renderIconPicker('icoLeft', 'Left Icon')}
+                        ${this.renderIconPicker('icoRight', 'Right Icon')}
+                        ${this.renderIconPicker('icoCenter', 'Center Icon')}
+                        ${this.renderIconPicker('icoHold', 'Hold Icon')}
+                        ${this.renderIconPicker('icoDouble', 'Double Click Icon')}
+                    </div>
+                </div>
+
+                <div class="tab">
+                    <div class="tab-label">Advanced</div>
+                    <div class="tab-content">
+                        ${this.renderCheckbox('lockNonEntityDirs', 'Lock Non-Entity Directions', true)}
+                        ${this.renderNumberInput('maxDrag', 'Max Drag', 100)}
+                        ${this.renderNumberInput('returnTime', 'Return Time', 200)}
+                        ${this.renderNumberInput('springDamping', 'Spring Damping', 2)}
+                        ${this.renderNumberInput('repeatTime', 'Repeat Time', 200)}
+                        ${this.renderNumberInput('holdTime', 'Hold Time', 800)}
+                        ${this.renderNumberInput('multiClickTime', 'Multi-click Time', 300)}
+                        ${this.renderNumberInput('deadzone', 'Deadzone', 20)}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // These are the building blocks for the configurator html
+    private renderEntityPicker(configKey: keyof DragCardConfig, label: string, domain?: any) {
+        return html`
+            <ha-selector
+                .hass=${this.hass}
+                .label=${label}
+                .selector=${{ entity: domain ? { domain } : {} }}
+                .configValue=${configKey}
+                .value=${this.config?.[configKey] || ""}
+                @value-changed=${this._valueChanged}
+            ></ha-selector>
+        `;
+    }
+    private renderIconPicker(configKey: keyof DragCardConfig, label: string) {
+        return html`
+            <ha-icon-picker
+                .hass=${this.hass}
+                .label=${label}
+                .configValue=${configKey}
+                .value=${this.config![configKey] || ""}
+                @value-changed=${this._valueChanged}
+            ></ha-icon-picker>
+        `;
+    }
+    private renderNumberInput(configKey: keyof DragCardConfig, label: string, defaultValue: number = 0) {
+        return html`
+            <ha-textfield
+                .configValue=${configKey}
+                .label=${label}
+                type="number"
+                .value=${this.config![configKey] || defaultValue}
+                @input=${this._valueChanged}
+            ></ha-textfield>
+        `;
+    }
+    private renderTextInput(configKey: keyof DragCardConfig, label: string, defaultValue: string = "") {
+        return html`
+            <ha-textfield
+                .label=${label}
+                .configValue=${configKey}
+                .value=${this.config![configKey] || defaultValue}
+                @input=${this._valueChanged}
+            ></ha-textfield>
+        `;
+    }
+    private renderCheckbox(configKey: keyof DragCardConfig, label: string, defaultValue: boolean = false) {
+        return html`
+            <ha-formfield .label=${label}>
+                <ha-switch
+                    .checked=${this.config![configKey] !== undefined ? this.config![configKey] : defaultValue}
+                    .configValue=${configKey}
+                    @change=${this._valueChanged}
+                ></ha-switch>
             </ha-formfield>
-          </div>
-          ${this._renderTextInput('padding', 'Padding (e.g. 15px')}
-          ${this._renderTextInput('cardHeight', 'Card Height (e.g. 150px')}
-          ${this._renderTextInput('iconSize', 'Icon Size (e.g. 80%')}
-        </div>
-  
-        <!-- Entities Tab -->
-        <div class="tab">
-          <input type="checkbox" id="entities" class="tab-checkbox">
-          <label class="tab-label" for="entities">Entities</label>
-          <div class="tab-content">
-            ${this._renderEntityPicker('entityUp', 'Swipe Up Entity')}
-            ${this._renderEntityPicker('entityDown', 'Swipe Down Entity')}
-            ${this._renderEntityPicker('entityLeft', 'Swipe Left Entity')}
-            ${this._renderEntityPicker('entityRight', 'Swipe Right Entity')}
-            ${this._renderEntityPicker('entityCenter', 'Center Click Entity')}
-            ${this._renderEntityPicker('entityDouble', 'Double Click Entity')}
-            ${this._renderEntityPicker('entityHold', 'Hold Entity')}
-          </div>
-        </div>
-  
-        <!-- Icons Tab -->
-        <div class="tab">
-          <input type="checkbox" id="icons" class="tab-checkbox">
-          <label class="tab-label" for="icons">Icons</label>
-          <div class="tab-content">
-            ${this._renderIconPicker('icoDefault', 'Default Icon', 'mdi:drag-variant')}
-            ${this._renderIconPicker('icoUp', 'Up Icon', 'mdi:chevron-up')}
-            ${this._renderIconPicker('icoDown', 'Down Icon', 'mdi:chevron-down')}
-            ${this._renderIconPicker('icoLeft', 'Left Icon', 'mdi:chevron-left')}
-            ${this._renderIconPicker('icoRight', 'Right Icon', 'mdi:chevron-right')}
-            ${this._renderIconPicker('icoCenter', 'Center Icon')}
-            ${this._renderIconPicker('icoDouble', 'Double Icon')}
-            ${this._renderIconPicker('icoHold', 'Hold Icon')}
-          </div>
-        </div>
-  
-        <!-- Advanced Settings Tab (existing) -->
-        <div class="tab">
-          <input type="checkbox" id="advanced" class="tab-checkbox">
-          <label class="tab-label" for="advanced">Advanced Settings</label>
-          <div class="tab-content">
-            ${this._renderNumberInput('maxDrag', 'Max Drag Distance (px)', 100)}
-            ${this._renderNumberInput('deadzone', 'Deadzone (px)', 20)}
-          </div>
-        </div>
-      </div>
-    `;
-    this.loadComponents();
-    this.addEventListeners();
-  }
-
-  private async _loadHomeAssistantComponent(component: string): Promise<void> {
-    try {
-      if (!this.shadowRoot) return;
-      
-      await customElements.whenDefined(component);
-      
-      const registry = (this.shadowRoot as any).customElements;
-      if (!registry) return;
-
-      if (!registry.get(component)) {
-        const globalElement = customElements.get(component);
-        if (globalElement) {
-          registry.define(component, globalElement);
-        }
-      }
-    } catch (error) {
-      console.error(`Failed to load ${component}:`, error);
+        `;
     }
-  }
-
-  private async loadComponents() {
-    if (!(window as any).loadCardHelpers) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-    
-    await this._loadHomeAssistantComponent("ha-entity-picker");
-    await this._loadHomeAssistantComponent("ha-icon-picker");
-  }
-
-  // In _renderEntityPicker
-  private _renderEntityPicker(configKey: keyof DragCardConfig, label: string): string {
-    return `
-      <div class="config-row">
-        <ha-entity-picker
-          id="${configKey}"
-          label="${label}"
-          .hass="${this._hass}"
-          .value="${this._config![configKey] ?? ''}"
-          .includeDomains="${JSON.stringify(this._domains)}"
-        ></ha-entity-picker>
-      </div>
-    `;
-  }
-
-  // In _renderIconPicker
-  private _renderIconPicker(configKey: keyof DragCardConfig, label: string, placeholder = ''): string {
-    return `
-      <div class="config-row">
-        <ha-icon-picker
-          id="${configKey}"
-          label="${label}"
-          .value="${this._config![configKey] ?? placeholder}"
-        ></ha-icon-picker>
-      </div>
-    `;
-  }
-
-  // In _renderNumberInput
-  private _renderNumberInput(configKey: keyof DragCardConfig, label: string, defaultValue: number): string {
-    return `
-      <div class="config-row">
-        <paper-input
-          id="${configKey}"
-          label="${label}"
-          type="number"
-          .value="${this._config![configKey] ?? defaultValue}"
-        ></paper-input>
-      </div>
-    `;
-  }
-
-  // In _renderTextInput
-  private _renderTextInput(configKey: keyof DragCardConfig, label: string): string {
-    return `
-      <div class="config-row">
-        <paper-input
-          id="${configKey}"
-          label="${label}"
-          type="text"
-          .value="${this._config![configKey] ?? ''}"
-        ></paper-input>
-      </div>
-    `;
-  }
-  
-  private addEventListeners() {
-    if (!this.shadowRoot) return;
-
-    // New text/number inputs
-    const inputIds = ['padding', 'cardHeight', 'iconSize', 'maxDrag', 'deadzone'];
-    inputIds.forEach(id => {
-      const input = this.shadowRoot!.querySelector(`#${id}`) as any;
-      if (input) {
-        input.addEventListener('value-changed', (ev: Event) => this._valueChanged(ev, id as keyof DragCardConfig));
-      }
-    });
-
-    // New entity pickers
-    const entityKeys = ['entityUp', 'entityDown', 'entityLeft', 'entityRight', 'entityDouble'];
-    entityKeys.forEach(key => {
-      const picker = this.shadowRoot!.querySelector(`#${key}`) as any;
-      if (picker) {
-        picker.addEventListener('value-changed', (ev: Event) => this._valueChanged(ev, key as keyof DragCardConfig));
-      }
-    });
-
-    // New icon pickers
-    const iconKeys = ['icoUp', 'icoDown', 'icoLeft', 'icoRight', 'icoDouble', 'icoHold'];
-    iconKeys.forEach(key => {
-      const picker = this.shadowRoot!.querySelector(`#${key}`) as any;
-      if (picker) {
-        picker.addEventListener('value-changed', (ev: Event) => this._valueChanged(ev, key as keyof DragCardConfig));
-      }
-    });
-  }
-
-  private _valueChanged(ev: Event, key: keyof DragCardConfig) {
-    if (!this._config) return;
-    console.log("Config changed:", key, (ev.target as any).value);
-
-    const target = ev.target as any;
-    const value = target.checked !== undefined ? target.checked : target.value;
-    
-    if (this._config[key] === value) return;
-
-    const newConfig = {
-      ...this._config,
-      [key]: value,
-    };
-
-    this._config = newConfig;
-
-    this.dispatchEvent(
-      new CustomEvent("config-changed", {
-        detail: { config: newConfig },
-        bubbles: true,
-        composed: true
-      })
-    );
-  }
 }
 
-customElements.define("drag-card", DragCard);
-customElements.define('drag-card-editor', DragCardEditor);
 
-// Update card registration
+
+
+
+
+
+
+
+
+
+
+declare global {
+    interface HTMLElementTagNameMap {
+        'drag-card-editor': DragCardEditor;
+    }
+}
+
 (window as any).customCards = (window as any).customCards || [];
 (window as any).customCards.push({
-  type: 'drag-card',
-  name: 'Drag Card',
-  description: 'A custom button with multiple functions depending on the drag direction',
-  preview: true,
-  configurable: true, // This enables the visual editor
-  documentationURL: 'https://github.com/your-repo/drag-card'
+    type: 'drag-card',
+    name: 'Drag Card',
+    description: 'A draggable button with directional actions',
+    preview: true,
+    documentationURL: 'https://github.com/BlackCube4/Drag-Card'
 });

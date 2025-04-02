@@ -37,8 +37,6 @@ A button for Home Assistant which can be dragged in four directions to trigger f
 | entityDouble | Button/Switch/Skript that gets activated/toggled when double clicking on the button.
 | entityTriple | Button/Switch/Skript that gets activated/toggled when triple clicking up on the button.
 | entityQuadruple | Button/Switch/Skript that gets activated/toggled when quadruple clicking up on the button.
-| entityFivefold | Button/Switch/Skript that gets activated/toggled when fivefold clicking up on the button.
-| entitySixfold | Button/Switch/Skript that gets activated/toggled when sixfold clicking up on the button.
 | entityHold | Button/Switch/Skript that gets activated/toggled when clicking the button for a long time without swiping.
 
 #### Icon Options
@@ -53,6 +51,9 @@ A button for Home Assistant which can be dragged in four directions to trigger f
 | icoDouble | The icon that gets displayed when double clicking on the button.
 | icoTriple | The icon that gets displayed when triple clicking on the button.
 | icoQuadruple | The icon that gets displayed when quadruple clicking on the button.
-| icoFivefold | The icon that gets displayed when fivefold clicking on the button.
-| icoSixfold | The icon that gets displayed when sixfold clicking on the button.
 | icoHold | The icon that gets displayed when holding down the button.
+
+- Install Node.js (which includes npm (Node Package Manager) if you haven't already)
+- Open a command prompt or terminal and navigate to the project folder.
+- npm install
+- npm run build
