@@ -51,6 +51,9 @@ interface DragCardConfig {
     buttonBorderRadius?: string;
     buttonBoxShadow?: string;
 
+    iconLargerOnClick?: boolean;
+    buttonSmallerOnClick?: boolean;
+
     iconSize?: string;
 }
 
@@ -64,8 +67,7 @@ export class DragCard extends LitElement {
     @state()
     private config!: DragCardConfig;
 
-    private isRippleAnimating = false;
-    private isHover = false;
+    private startTime = 0;
     private buttonRealPos = { x: 0, y: 0 };             // "Real" position (without scaling)
     private mouseOffset = { x: 0, y: 0 };               // Mouse offset
     private buttonOrigin = { x: 0, y: 0 };              // Original position
@@ -77,6 +79,8 @@ export class DragCard extends LitElement {
     private maxMultiClicks = 1;
     private isHoldAction = false;
 
+    private transitioned: number | null = null;
+
     private holdDetection: number | null = null;
     private repeatAction: number | null = null;
     private handleClick: number | null = null;
@@ -84,12 +88,22 @@ export class DragCard extends LitElement {
     private animationFrameID: number | null = null;
 
     private button!: HTMLElement;
+    private visualButton!: HTMLElement;
+    private iconContainer!: HTMLElement;
+    private hover!: HTMLElement;
+    private ripple!: HTMLElement;
+
+    private rippleTime = 300;
 
     private boundDragHandler = this.drag.bind(this);
     private boundEndDragHandler = this.endDrag.bind(this);
 
     firstUpdated() {
         this.button = this.shadowRoot!.querySelector('.drag-button') as HTMLElement;
+        this.visualButton = this.button.querySelector('.drag-button-visual') as HTMLElement;
+        this.iconContainer = this.button.querySelector('.icon-container') as HTMLElement;
+        this.hover = this.button.querySelector('.hover') as HTMLElement;
+        this.ripple = this.button.querySelector('.ripple') as HTMLElement;
         this.initOrigin();
     }
 
@@ -111,60 +125,77 @@ export class DragCard extends LitElement {
 
         .drag-button {
             position: relative;
-            top: 0;
             left: 0;
+            top: 0;
             height: var(--drag-button-height);
             width: var(--drag-button-width);
+
+            touch-action: none;
+            z-index: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .drag-button-visual {
+            height: 100%;
+            width: 100%;
+            position: relative;
 
             background-color: var(--drag-button-background-color, var(--ha-card-background, var(--card-background-color)));
             border-radius: var(--drag-button-border-radius, var(--ha-card-border-radius));
             box-shadow: var(--drag-button-box-shadow, var(--ha-card-box-shadow));
 
-            touch-action: none;
+            transition: transform 0.1s ease;
             overflow: hidden;
             cursor: pointer;
-            z-index: 0;
-        }
-
-        .drag-button-visual {
-
         }
 
         .hover {
+            left: 0;
+            top: 0;
             position: absolute;
             width: 100%;
             height: 100%;
             background-color: rgb(255, 255, 255);
             opacity: 0;
+            transition: opacity 0.1s ease;
+        }
+        @media (hover: hover) {
+            .hover:hover {
+                opacity: 0.01 !important;
+            }
         }
 
         .ripple {
+            left: 0;
+            top: 0;
             position: absolute;
-            transform: translate(-50%, -50%);
             border-radius: 50%;
             background-color: rgb(255, 255, 255);
             opacity: 0;
-            box-shadow: 0 0 100px 100px rgb(255, 255, 255); //offset-x offset-y softness shadow-size color;
+            pointer-events: none;
+            box-shadow: 0 0 40px 40px rgb(255, 255, 255); //offset-x offset-y softness shadow-size color;
+            transform: scale(1);
         }
         
-        icon-container {
+        .icon-container {
             display: flex;
             justify-content: center;
             align-items: center;
             width: 100%;
             height: 100%;
+            transition: transform 0.1s ease;
         }
 
         .icon {
-            width: var(--drag-card-icon-size, 80%);
-            height: var(--drag-card-icon-size, 80%);
+            width: var(--drag-card-icon-size);
+            height: var(--drag-card-icon-size);
             --mdc-icon-size: 100%;
         }
 
         .image {
             object-fit: contain;
-            width: var(--drag-card-icon-size, 80%);
-            height: var(--drag-card-icon-size, 80%);
+            width: var(--drag-card-icon-size);
+            height: var(--drag-card-icon-size);
         }
     `;
 
@@ -186,6 +217,8 @@ export class DragCard extends LitElement {
             multiClickTime: 300,
             deadzone: 20,
             lockNonEntityDirs: true,
+            iconLargerOnClick: false,
+            buttonSmallerOnClick: true,
             ...config
         };
 
@@ -230,9 +263,14 @@ export class DragCard extends LitElement {
         return html`
             <ha-card>
                 <div class="drag-button"
-                    @touchstart=${this.startDrag}
-                    @mousedown=${this.startDrag}>
-                    ${this.renderIcon()}
+                    @pointerdown=${this.startDrag}>
+                    <div class="drag-button-visual">         
+                        <div class="icon-container">
+                            ${this.renderIcon()}
+                        </div>
+                        <div class="hover"></div>
+                        <div class="ripple"></div>
+                    </div>
                 </div>
             </ha-card>
         `;
@@ -242,8 +280,8 @@ export class DragCard extends LitElement {
         if (!this.currentIcon) return html``;
         
         return this.currentIcon.startsWith("/local/") 
-            ? html`<icon-container><img class="image" src=${this.currentIcon} alt="Image"></img></icon-container>`
-            : html`<icon-container><ha-icon class="icon" .icon=${this.currentIcon}></ha-icon></icon-container>`;
+            ? html`<img class="image" src=${this.currentIcon} alt="Image"></img>`
+            : html`<ha-icon class="icon" .icon=${this.currentIcon}></ha-icon>`;
     }
 
     private initOrigin() {
@@ -266,9 +304,12 @@ export class DragCard extends LitElement {
     // This function is called when the mouse or touch is pressed down
     // It sets the initial position and starts the drag action
     private startDrag(event: any) {
-        //console.log("startDrag");
         this.button.style.zIndex = '1';
-        this.button.style.transform = `scale(0.95)`;
+        if (this.config.buttonSmallerOnClick) this.visualButton.style.transform = "scale(0.95)";
+        if (this.config.iconLargerOnClick) this.iconContainer.style.transform = "scale(1.1)";
+        if (event.pointerType != 'touch') this.hover.style.opacity = "0.01";
+
+        this.startTime = Date.now();
 
         // Cancel any ongoing return animation
         if (this.animationFrameID) {
@@ -276,26 +317,65 @@ export class DragCard extends LitElement {
             this.animationFrameID = null;
         }
         
+        const rect = this.button.getBoundingClientRect();
+        const buttonWidth = rect.width;
+        const buttonHeight = rect.height;
+
         // Get the mouse/finger position relative to the doc
         const mouseDocument = {
             x: event.touches ? event.touches[0].clientX : event.clientX,
             y: event.touches ? event.touches[0].clientY : event.clientY };
 
-        // Calculate offset between mouse and button center
         this.mouseOffset = {
             x: mouseDocument.x - this.buttonRealPos.x,
             y: mouseDocument.y - this.buttonRealPos.y };
 
-        document.addEventListener('mousemove', this.boundDragHandler);
-        document.addEventListener('mouseup', this.boundEndDragHandler);
-        document.addEventListener('touchmove', this.boundDragHandler);
-        document.addEventListener('touchend', this.boundEndDragHandler);
+        // Get the mouse/finger position relative to the button
+        const mouseButton = {
+            x: mouseDocument.x - rect.left,
+            y: mouseDocument.y - rect.top };
+
+        // Set ripple start radius to 10% of longer side
+        let rippleRadius = 0;
+        if (buttonWidth < buttonHeight) rippleRadius = buttonHeight * 0.1;
+        else rippleRadius = buttonWidth * 0.1;
+        this.ripple.style.left = mouseButton.x - rippleRadius + 'px';
+        this.ripple.style.top = mouseButton.y - rippleRadius + 'px';
+        this.ripple.style.width = rippleRadius*2 + 'px';
+        this.ripple.style.height = rippleRadius*2 + 'px';
+
+        // Get distance to furthest corner (Set ripple end radius)
+        if (mouseButton.x > buttonWidth/2){
+            if (mouseButton.y > buttonHeight/2) var distCorner = Math.sqrt((mouseButton.x) **2 + (mouseButton.y) ** 2); //top left
+            else var distCorner = Math.sqrt((mouseButton.x) **2 + (buttonHeight - mouseButton.y) ** 2); //buttom left
+        } else {
+            if (mouseButton.y > buttonHeight/2) var distCorner = Math.sqrt((buttonWidth - mouseButton.x) **2 + (mouseButton.y) ** 2); //top right
+            else var distCorner = Math.sqrt((buttonWidth - mouseButton.x) **2 + (buttonHeight - mouseButton.y) ** 2); //bottom right
+        }
+        let newScale = distCorner/rippleRadius;
+
+        // Reset ripple scale without transition
+        this.ripple.style.transition = 'none';
+        this.ripple.style.transform = 'scale(1)';
+        this.ripple.style.opacity = '0.02';
+        
+        // Force a reflow to ensure the reset is applied before the next change
+        void this.ripple.offsetHeight;
+        
+        // Reapply transition and set new scale
+        this.ripple.style.transition = 'transform ' + this.rippleTime + 'ms ease-in, opacity 0.3s';
+        this.ripple.style.transform = 'scale(' + newScale + ')';
+        this.ripple.style.opacity = '0.04';
+
+        document.addEventListener('pointermove', this.boundDragHandler);
+        document.addEventListener('pointerup', this.boundEndDragHandler);
 
         this.actionCounter = 0;
         this.isHoldAction = false;
 
         this.holdDetection = window.setTimeout(() => {
             this.isHoldAction = true;
+            this.detectSwipeDirection((this.config.deadzone!) * 2, 1);
             this.repeatAction = window.setInterval(() => {
                 this.detectSwipeDirection((this.config.deadzone!) * 2, 1);
             }, this.config.repeatTime!);
@@ -304,10 +384,10 @@ export class DragCard extends LitElement {
 
     // This function is called when the mouse or touch is moved
     // It calculates the distance moved and updates the position of the button
-    private drag(event: any) {
+    private drag(event: any) {        
         event.preventDefault();
         document.body.style.cursor = 'grabbing';
-        this.button.style.cursor = 'grabbing';
+        this.visualButton.style.cursor = 'grabbing';
 
         // Get the mouse/finger position relative to the doc
         const mouseDocument = { x: event.touches ? event.touches[0].clientX : event.clientX,
@@ -326,7 +406,7 @@ export class DragCard extends LitElement {
         let scale = this.config.maxDrag! / (this.config.maxDrag! + this.distance);
 
         // Update displayed position with scaling
-        this.updatePosition(d.x * scale, d.y * scale, 0.95);
+        this.updatePosition(d.x * scale, d.y * scale);
     }
     
 
@@ -342,7 +422,7 @@ export class DragCard extends LitElement {
             if (holdMode == 1 && this.actionCounter == 0) {
                 console.log("hold")
                 if (this.config.entityHold) {
-                    this.currentIcon = this.config.icoHold || this.currentIcon;
+                    this.currentIcon = this.config.icoHold || '';
                     this.callService(this.config.entityHold);
                 }
                 this.endDrag();
@@ -438,11 +518,26 @@ export class DragCard extends LitElement {
     private endDrag() {
         //console.log("endDrag");
         document.body.style.cursor = '';
-        this.button.style.cursor = 'pointer';
-        document.removeEventListener('mousemove', this.boundDragHandler);
-        document.removeEventListener('mouseup', this.boundEndDragHandler);
-        document.removeEventListener('touchmove', this.boundDragHandler);
-        document.removeEventListener('touchend', this.boundEndDragHandler);
+        this.visualButton.style.cursor = 'pointer';
+        if (this.config.buttonSmallerOnClick) this.visualButton.style.transform = "scale(1)";
+        if (this.config.iconLargerOnClick) this.iconContainer.style.transform = "scale(1)";
+        this.hover.style.opacity = "0";
+
+        const handleTransitionEnd = (event: TransitionEvent) => {
+            if (event.propertyName === 'transform') {
+                this.ripple.style.opacity = '0';
+                this.ripple.removeEventListener('transitionend', handleTransitionEnd);
+            }
+        };
+
+        if (Date.now() - this.startTime >= this.rippleTime) {
+            this.ripple.style.opacity = '0';
+        } else {
+            this.ripple.addEventListener('transitionend', handleTransitionEnd);
+        }
+
+        document.removeEventListener('pointermove', this.boundDragHandler);
+        document.removeEventListener('pointerup', this.boundEndDragHandler);
         
         if (this.isHoldAction == false) this.detectSwipeDirection(this.config.deadzone!, 0);
 
@@ -492,7 +587,7 @@ export class DragCard extends LitElement {
             let scale = this.config.maxDrag! / (this.config.maxDrag! + this.distance);
 
             // Update displayed position with scaling
-            this.updatePosition(d.x * scale, d.y * scale, 1);
+            this.updatePosition(d.x * scale, d.y * scale);
 
             if (progress < 1) this.animationFrameID = requestAnimationFrame(animate);
             else this.button.style.zIndex = '0';
@@ -500,7 +595,7 @@ export class DragCard extends LitElement {
         this.animationFrameID = requestAnimationFrame(animate);
     }
 
-    private updatePosition(x: number, y: number, s: number) {
+    private updatePosition(x: number, y: number) {
         // Reset pos for non existent entity directions
         if(this.config.lockNonEntityDirs){
             if((y > 0 && this.config.entityDown == null) || (y < 0 && this.config.entityUp == null))
@@ -510,7 +605,7 @@ export class DragCard extends LitElement {
         }
 
         // Update displayed position with scaling applied
-        this.button.style.transform = `translate(${x}px, ${y}px) scale(${s})`;
+        this.button.style.transform = `translate(${x}px, ${y}px)`;
     }
 
     // Required by Lovelace to show configuration UI
@@ -521,11 +616,11 @@ export class DragCard extends LitElement {
     // Default configuration for new cards with all the default values for variables
     static getStubConfig(): Partial<DragCardConfig> {
         return {
-            entityUp: 'button.ir_control_volume_up',
-            entityDown: 'button.ir_control_volume_down',
-            entityLeft: 'button.ir_control_left',
-            entityRight: 'button.ir_control_right',
-            entityCenter: 'button.ir_control_enter',
+            entityUp: 'button.volume_up',
+            entityDown: 'button.volume_down',
+            entityLeft: 'button.control_left',
+            entityRight: 'button.control_right',
+            entityCenter: 'button.control_enter',
             icoDefault: 'mdi:drag-variant',
             icoUp: 'mdi:chevron-up',
             icoDown: 'mdi:chevron-down',

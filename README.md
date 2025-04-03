@@ -1,30 +1,76 @@
 # Home Assistant - Drag Card
-A button for Home Assistant which can be dragged in four directions to trigger four actions.
+A customizable draggable button card for Home Assistant with directional swipe actions, multi-click support, and smooth animations.
 
-<picture>
-  <img width="250" alt="Preview" src="https://github.com/BlackCube4/HomeAssistant-DragButtonCard/blob/main/DragCard.gif">
-</picture>
+![Drag Card Preview](https://github.com/BlackCube4/HomeAssistant-DragButtonCard/blob/main/DragCard.gif)
 
+## ✨ Features
 
-## Card Options
-#### Configuration Options
-| Name | Default Value | Description |
-|------|---------------|-------------|
-| type ***(required)*** | | `custom:drag-card`.
-| maxDrag | 100 | The maximum distance the button can be dragged in px
-| stopSpeedFactor | 1 | The speed at which the button will reach its max drag distance
-| repeatTime | 200 | Rrapid fire interval time in ms
-| holdTime | 800 | Time until hold action gets activated in ms
-| maxMultiClicks | 2 | Max amount of MultiClicks to register
-| multiClickTime | 300 | Time between clicks to activate multi click in ms
-| deadzone | 20 | Radius in which a swipe action won't be recognized
-| isStandalone | true | Dectivate if your drag button is integrated into another card
-| padding | 15px |  Padding of the card
-| cardHeight | 150px | Height of the card
-| height | 100% | Height of the button
-| width | 100% | Width of the button
-| backgroundColor | '#1D1E21' | Background color of the Button
-| borderRadius | '15px' | Radius of the rounded edges
+- **Directional swipe actions** (up, down, left, right)
+- **Multi-click support** (single, double, triple, quadruple click)
+- **Long press/hold action**
+- **Custom icons** for each action state
+- **Smooth spring animations**
+- **Fully customizable** appearance and behavior
+- **Works with** buttons, scripts, lights, switches, and covers
+
+## 📦 Installation
+
+### HACS (Recommended)
+1. Open HACS in your Home Assistant
+2. Go to "Frontend" section
+3. Click "+ Explore & Download Repositories"
+4. Search for "Drag Card"
+5. Click "Download" and restart Home Assistant
+
+### Manual Installation
+1. Download the latest release from [GitHub Releases](https://github.com/BlackCube4/HomeAssistant-DragButtonCard/releases)
+2. Copy `drag-card.js` to your `config/www` directory
+3. Add the following to your Lovelace configuration:
+
+```yaml
+resources:
+  - url: /local/drag-card.js
+    type: module
+```
+
+## 🚀 Build From Source
+1. Install Node.js (which includes npm)
+2. git clone https://github.com/BlackCube4/HomeAssistant-DragButtonCard.git
+3. Open a terminal and navigate to the project folder
+4. Run:
+   ```bash
+   npm install
+   npm run build
+
+## 🛠 Configuration
+#### Basics/Appearance
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| type | string | ***(required)*** | `custom:drag-card`
+| padding | string | 15px | Card padding
+| cardWidth | string | 100% | Width of the card
+| cardHeight | string | 150px | Height of the card
+| buttonWidth | string | 100% | Width of the button
+| buttonHeight | string | 100% | Height of the button
+| iconSize | string | 80% | Size of icons relative to button
+| cardBackgroundColor | string | HA card background | Background color of the card
+| cardBorderRadius | string | HA card radius | Border radius of the card
+| cardBoxShadow | string | HA card shadow |	Box shadow of the card
+| buttonBackgroundColor | string | HA card background | Background color of the button
+| buttonBorderRadius | string | HA card radius | Border radius of the button
+| buttonBoxShadow | string | HA card shadow | Box shadow of the button
+
+#### Behavior Settings
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| maxDrag | number | 100 | Maximum drag distance in pixels
+| returnTime | number | 200 | Return animation duration in ms
+| springDamping | number | 2 | Controls spring animation (≥2 = no bounce)
+| repeatTime | number | 200 | Rapid fire interval for hold action in ms
+| holdTime | number | 800 | Time until hold action triggers in ms
+| multiClickTime | number | 300 | Time between clicks for multi-click in ms
+| deadzone | number | 20 | Radius where swipe actions won't register
+| lockNonEntityDirs | boolean | true | Disable dragging in directions without entities
 
 #### Entity Options
 | Name | Description |
@@ -52,8 +98,3 @@ A button for Home Assistant which can be dragged in four directions to trigger f
 | icoTriple | The icon that gets displayed when triple clicking on the button.
 | icoQuadruple | The icon that gets displayed when quadruple clicking on the button.
 | icoHold | The icon that gets displayed when holding down the button.
-
-- Install Node.js (which includes npm (Node Package Manager) if you haven't already)
-- Open a command prompt or terminal and navigate to the project folder.
-- npm install
-- npm run build
