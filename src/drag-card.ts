@@ -43,6 +43,7 @@ interface DragCardConfig {
     cardBackgroundColor?: string;
     cardBorderRadius?: string;
     cardBoxShadow?: string;
+    cardBorder?: string;
 
     buttonWidth?: string;
     buttonHeight?: string;
@@ -53,6 +54,8 @@ interface DragCardConfig {
 
     iconLargerOnClick?: boolean;
     buttonSmallerOnClick?: boolean;
+
+    isStandalone?: boolean;
 
     iconSize?: string;
 }
@@ -67,6 +70,7 @@ export class DragCard extends LitElement {
     @state()
     private config!: DragCardConfig;
 
+    private startTime = 0;
     private buttonRealPos = { x: 0, y: 0 };             // "Real" position (without scaling)
     private mouseOffset = { x: 0, y: 0 };               // Mouse offset
     private buttonOrigin = { x: 0, y: 0 };              // Original position
@@ -77,8 +81,6 @@ export class DragCard extends LitElement {
     private lastClick: number | null = null;
     private maxMultiClicks = 1;
     private isHoldAction = false;
-
-    private transitioned: number | null = null;
 
     private holdDetection: number | null = null;
     private repeatAction: number | null = null;
@@ -91,6 +93,8 @@ export class DragCard extends LitElement {
     private iconContainer!: HTMLElement;
     private hover!: HTMLElement;
     private ripple!: HTMLElement;
+
+    private rippleTime = 300;
 
     private boundDragHandler = this.drag.bind(this);
     private boundEndDragHandler = this.endDrag.bind(this);
@@ -114,6 +118,7 @@ export class DragCard extends LitElement {
             background-color: var(--drag-card-background-color, var(--ha-card-background, var(--card-background-color)));
             border-radius: var(--drag-card-border-radius, var(--ha-card-border-radius));
             box-shadow: var(--drag-card-box-shadow, var(--ha-card-box-shadow));
+            border: var(--drag-card-border, var(--ha-card-border-width,1px));
 
             display: flex;
             justify-content: center;
@@ -170,7 +175,7 @@ export class DragCard extends LitElement {
             background-color: rgb(255, 255, 255);
             opacity: 0;
             pointer-events: none;
-            /* box-shadow: 0 0 40px 40px rgb(255, 255, 255); //offset-x offset-y softness shadow-size color; */
+            box-shadow: 0 0 40px 40px rgb(255, 255, 255); //offset-x offset-y softness shadow-size color;
             transform: scale(1);
         }
         
@@ -216,12 +221,13 @@ export class DragCard extends LitElement {
             lockNonEntityDirs: true,
             iconLargerOnClick: false,
             buttonSmallerOnClick: true,
+            isStandalone: true,
             ...config
         };
 
-        this.style.setProperty('--drag-card-padding', this.config.padding ?? '15px');
+        this.style.setProperty('--drag-card-padding', this.config.padding ?? (this.config.isStandalone ? '15px' : '0px'));
         this.style.setProperty('--drag-card-width', this.config.cardWidth ?? '100%');
-        this.style.setProperty('--drag-card-height', this.config.cardHeight ?? '150px');
+        this.style.setProperty('--drag-card-height', this.config.cardHeight ?? '100%');
 
         if (this.config.cardBackgroundColor) { this.style.setProperty('--drag-card-background-color', this.config.cardBackgroundColor); }
         if (this.config.cardBorderRadius) { this.style.setProperty('--drag-card-border-radius', this.config.cardBorderRadius); }
@@ -229,6 +235,12 @@ export class DragCard extends LitElement {
 
         this.style.setProperty('--drag-button-width', this.config.buttonWidth ?? '100%');
         this.style.setProperty('--drag-button-height', this.config.buttonHeight ?? '100%');
+
+        if (this.config.isStandalone == false) {
+            this.style.setProperty('--drag-card-background-color', 'transparent');
+            this.style.setProperty('--drag-card-box-shadow', 'none');
+            this.style.setProperty('--drag-card-border', '0px');
+        }
 
         if (this.config.buttonBackgroundColor) { this.style.setProperty('--drag-button-background-color', this.config.buttonBackgroundColor); }
         if (this.config.buttonBorderRadius) { this.style.setProperty('--drag-button-border-radius', this.config.buttonBorderRadius); }
@@ -257,20 +269,23 @@ export class DragCard extends LitElement {
     render() {
         if (!this.config) return html`<div>No configuration</div>`;
 
-        return html`
-            <ha-card>
-                <div class="drag-button"
-                    @pointerdown=${this.startDrag}>
-                    <div class="drag-button-visual">         
-                        <div class="icon-container">
-                            ${this.renderIcon()}
-                        </div>
-                        <div class="hover"></div>
-                        <div class="ripple"></div>
-                    </div>
+        const content = html`
+            <div class="drag-button"
+                @pointerdown=${this.startDrag}>
+                <div class="drag-button-visual">         
+                    <div class="icon-container">
+                        ${this.renderIcon()}
+                   </div>
+                    <div class="hover"></div>
+                    <div class="ripple"></div>
                 </div>
-            </ha-card>
+            </div>
         `;
+
+        // The option to wrap it differently when standalone
+        return this.config.isStandalone === false 
+            ? html`<ha-card>${content}</ha-card>`
+            : html`<ha-card>${content}</ha-card>`;
     }
 
     renderIcon() {
@@ -306,6 +321,8 @@ export class DragCard extends LitElement {
         if (this.config.iconLargerOnClick) this.iconContainer.style.transform = "scale(1.1)";
         if (event.pointerType != 'touch') this.hover.style.opacity = "0.01";
 
+        this.startTime = Date.now();
+
         // Cancel any ongoing return animation
         if (this.animationFrameID) {
             cancelAnimationFrame(this.animationFrameID);
@@ -332,8 +349,8 @@ export class DragCard extends LitElement {
 
         // Set ripple start radius to 10% of longer side
         let rippleRadius = 0;
-        if (buttonWidth < buttonHeight) rippleRadius = buttonHeight * 0.20;
-        else rippleRadius = buttonWidth * 0.20;
+        if (buttonWidth < buttonHeight) rippleRadius = buttonHeight * 0.1;
+        else rippleRadius = buttonWidth * 0.1;
         this.ripple.style.left = mouseButton.x - rippleRadius + 'px';
         this.ripple.style.top = mouseButton.y - rippleRadius + 'px';
         this.ripple.style.width = rippleRadius*2 + 'px';
@@ -358,7 +375,7 @@ export class DragCard extends LitElement {
         void this.ripple.offsetHeight;
         
         // Reapply transition and set new scale
-        this.ripple.style.transition = 'transform 0.3s ease-in, opacity 0.3s';
+        this.ripple.style.transition = 'transform ' + this.rippleTime + 'ms ease-in, opacity 0.3s';
         this.ripple.style.transform = 'scale(' + newScale + ')';
         this.ripple.style.opacity = '0.04';
 
@@ -518,7 +535,18 @@ export class DragCard extends LitElement {
         if (this.config.iconLargerOnClick) this.iconContainer.style.transform = "scale(1)";
         this.hover.style.opacity = "0";
 
-        this.ripple.style.opacity = '0';
+        const handleTransitionEnd = (event: TransitionEvent) => {
+            if (event.propertyName === 'transform') {
+                this.ripple.style.opacity = '0';
+                this.ripple.removeEventListener('transitionend', handleTransitionEnd);
+            }
+        };
+
+        if (Date.now() - this.startTime >= this.rippleTime) {
+            this.ripple.style.opacity = '0';
+        } else {
+            this.ripple.addEventListener('transitionend', handleTransitionEnd);
+        }
 
         document.removeEventListener('pointermove', this.boundDragHandler);
         document.removeEventListener('pointerup', this.boundEndDragHandler);
@@ -644,8 +672,6 @@ export class DragCardEditor extends LitElement {
     private _domains2 = ['light', 'cover'];
 
     static styles = css`
-        .config-section { margin-bottom: 16px; }
-        .config-row { margin-bottom: 8px; }
         .tab {
             border: 1px solid var(--divider-color);
             border-radius: 4px;
@@ -706,22 +732,24 @@ export class DragCardEditor extends LitElement {
 
         return html`
             <div class="config-container">
-                <div class="config-section">
-                    <h3>Card Settings</h3>
-                    ${this.renderTextInput('padding', 'Padding')}
-                    ${this.renderTextInput('cardWidth', 'Card Width')}
-                    ${this.renderTextInput('cardHeight', 'Card Height')}
-                    ${this.renderTextInput('cardBackgroundColor', 'Background Color')}
-                    ${this.renderTextInput('cardBorderRadius', 'Border Radius')}
-                    ${this.renderTextInput('cardBoxShadow', 'Box Shadow')} 
+                <div class="tab">
+                    <div class="tab-label">Visuals</div>
+                    <div class="tab-content">
+                        ${this.renderTextInput('padding', 'Padding')}
+                        ${this.renderTextInput('cardWidth', 'Card Width')}
+                        ${this.renderTextInput('cardHeight', 'Card Height')}
+                        ${this.renderTextInput('cardBackgroundColor', 'Background Color')}
+                        ${this.renderTextInput('cardBorderRadius', 'Border Radius')}
+                        ${this.renderTextInput('cardBoxShadow', 'Box Shadow')} 
 
-                    ${this.renderTextInput('buttonHeight', 'Button Height')}
-                    ${this.renderTextInput('buttonWidth', 'Button Width')}
-                    ${this.renderTextInput('buttonBackgroundColor', 'Button Background Color')}
-                    ${this.renderTextInput('buttonBorderRadius', 'Button Border Radius')}
-                    ${this.renderTextInput('buttonBoxShadow', 'Button Box Shadow')}
-                    
-                    ${this.renderTextInput('iconSize', 'Icon Size')}
+                        ${this.renderTextInput('buttonHeight', 'Button Height')}
+                        ${this.renderTextInput('buttonWidth', 'Button Width')}
+                        ${this.renderTextInput('buttonBackgroundColor', 'Button Background Color')}
+                        ${this.renderTextInput('buttonBorderRadius', 'Button Border Radius')}
+                        ${this.renderTextInput('buttonBoxShadow', 'Button Box Shadow')}
+                        
+                        ${this.renderTextInput('iconSize', 'Icon Size')}
+                    </div>
                 </div>
 
                 <div class="tab">
@@ -755,6 +783,7 @@ export class DragCardEditor extends LitElement {
                     <div class="tab-label">Advanced</div>
                     <div class="tab-content">
                         ${this.renderCheckbox('lockNonEntityDirs', 'Lock Non-Entity Directions', true)}
+                        ${this.renderCheckbox('isStandalone', 'Standalone', true)} 
                         ${this.renderNumberInput('maxDrag', 'Max Drag', 100)}
                         ${this.renderNumberInput('returnTime', 'Return Time', 200)}
                         ${this.renderNumberInput('springDamping', 'Spring Damping', 2)}
