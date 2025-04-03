@@ -67,7 +67,6 @@ export class DragCard extends LitElement {
     @state()
     private config!: DragCardConfig;
 
-    private startTime = 0;
     private buttonRealPos = { x: 0, y: 0 };             // "Real" position (without scaling)
     private mouseOffset = { x: 0, y: 0 };               // Mouse offset
     private buttonOrigin = { x: 0, y: 0 };              // Original position
@@ -92,8 +91,6 @@ export class DragCard extends LitElement {
     private iconContainer!: HTMLElement;
     private hover!: HTMLElement;
     private ripple!: HTMLElement;
-
-    private rippleTime = 300;
 
     private boundDragHandler = this.drag.bind(this);
     private boundEndDragHandler = this.endDrag.bind(this);
@@ -173,7 +170,7 @@ export class DragCard extends LitElement {
             background-color: rgb(255, 255, 255);
             opacity: 0;
             pointer-events: none;
-            box-shadow: 0 0 40px 40px rgb(255, 255, 255); //offset-x offset-y softness shadow-size color;
+            /* box-shadow: 0 0 40px 40px rgb(255, 255, 255); //offset-x offset-y softness shadow-size color; */
             transform: scale(1);
         }
         
@@ -309,8 +306,6 @@ export class DragCard extends LitElement {
         if (this.config.iconLargerOnClick) this.iconContainer.style.transform = "scale(1.1)";
         if (event.pointerType != 'touch') this.hover.style.opacity = "0.01";
 
-        this.startTime = Date.now();
-
         // Cancel any ongoing return animation
         if (this.animationFrameID) {
             cancelAnimationFrame(this.animationFrameID);
@@ -337,8 +332,8 @@ export class DragCard extends LitElement {
 
         // Set ripple start radius to 10% of longer side
         let rippleRadius = 0;
-        if (buttonWidth < buttonHeight) rippleRadius = buttonHeight * 0.1;
-        else rippleRadius = buttonWidth * 0.1;
+        if (buttonWidth < buttonHeight) rippleRadius = buttonHeight * 0.20;
+        else rippleRadius = buttonWidth * 0.20;
         this.ripple.style.left = mouseButton.x - rippleRadius + 'px';
         this.ripple.style.top = mouseButton.y - rippleRadius + 'px';
         this.ripple.style.width = rippleRadius*2 + 'px';
@@ -363,7 +358,7 @@ export class DragCard extends LitElement {
         void this.ripple.offsetHeight;
         
         // Reapply transition and set new scale
-        this.ripple.style.transition = 'transform ' + this.rippleTime + 'ms ease-in, opacity 0.3s';
+        this.ripple.style.transition = 'transform 0.3s ease-in, opacity 0.3s';
         this.ripple.style.transform = 'scale(' + newScale + ')';
         this.ripple.style.opacity = '0.04';
 
@@ -523,18 +518,7 @@ export class DragCard extends LitElement {
         if (this.config.iconLargerOnClick) this.iconContainer.style.transform = "scale(1)";
         this.hover.style.opacity = "0";
 
-        const handleTransitionEnd = (event: TransitionEvent) => {
-            if (event.propertyName === 'transform') {
-                this.ripple.style.opacity = '0';
-                this.ripple.removeEventListener('transitionend', handleTransitionEnd);
-            }
-        };
-
-        if (Date.now() - this.startTime >= this.rippleTime) {
-            this.ripple.style.opacity = '0';
-        } else {
-            this.ripple.addEventListener('transitionend', handleTransitionEnd);
-        }
+        this.ripple.style.opacity = '0';
 
         document.removeEventListener('pointermove', this.boundDragHandler);
         document.removeEventListener('pointerup', this.boundEndDragHandler);
