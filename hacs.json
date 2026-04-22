@@ -1,6 +1,5 @@
 {
-    "name": "Drag Card",
+    "name": "DragCard",
     "render_readme": true,
-    "filename": "DragCard.js",
-    "content_in_root": true
+    "filename": "drag-card.js"
 }

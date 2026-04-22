@@ -1,10 +1,18 @@
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import { HomeAssistant } from 'custom-card-helpers';
-import { fireEvent } from 'custom-card-helpers';
 
 // These are the variables that can be configured by the visual config and are edited by the card
 interface DragCardConfig {
+    actionUp?: any;
+    actionDown?: any;
+    actionLeft?: any;
+    actionRight?: any;
+    actionCenter?: any;
+    actionHold?: any;
+    actionDouble?: any;
+    actionTriple?: any;
+    actionQuadruple?: any;
+
     entityUp?: string;
     entityDown?: string;
     entityLeft?: string;
@@ -26,7 +34,11 @@ interface DragCardConfig {
     icoTriple?: string;
     icoQuadruple?: string;
 
-    lockNonEntityDirs?: boolean;
+    dragMode?: 'spring' | 'grid';
+    gridX?: number;
+    gridY?: number;
+
+    lockNonActionDirs?: boolean;
     maxDrag?: number;                   // The maximum distance the button can be dragged in px
     returnTime?: number;                // Return animation duration in ms
     springDamping?: number;             // Controls how bouncy the spring is (>=2 -> switch to different function without bounce at all)
@@ -63,18 +75,25 @@ interface DragCardConfig {
 @customElement('drag-card')
 export class DragCard extends LitElement {
     @property({ attribute: false }) 
-    hass?: HomeAssistant;
+    hass?: any;
 
     @state()
     private currentIcon = '';
     @state()
     private config!: DragCardConfig;
+    @state()
+    private isDragging = false;
 
     private startTime = 0;
     private buttonRealPos = { x: 0, y: 0 };             // "Real" position (without scaling)
     private mouseOffset = { x: 0, y: 0 };               // Mouse offset
     private buttonOrigin = { x: 0, y: 0 };              // Original position
+    private lastGridX = 0;
+    private lastGridY = 0;
     
+    private overlay: HTMLElement | null = null;
+    private buttonPlaceholder: HTMLElement | null = null;
+
     private distance = 0;
     private actionCounter = 0;
     private clickCount = 0;
@@ -98,8 +117,9 @@ export class DragCard extends LitElement {
 
     private boundDragHandler = this.drag.bind(this);
     private boundEndDragHandler = this.endDrag.bind(this);
+    private boundScrollHandler = this.onScroll.bind(this);
 
-    firstUpdated() {
+    protected firstUpdated() {
         this.button = this.shadowRoot!.querySelector('.drag-button') as HTMLElement;
         this.visualButton = this.button.querySelector('.drag-button-visual') as HTMLElement;
         this.iconContainer = this.button.querySelector('.icon-container') as HTMLElement;
@@ -111,6 +131,7 @@ export class DragCard extends LitElement {
     // Here is the css - style part of the code
     static styles = css`
         ha-card {
+            position: relative;
             padding: var(--drag-card-padding);
             height: var(--drag-card-height);
             width: var(--drag-card-width);
@@ -125,6 +146,28 @@ export class DragCard extends LitElement {
             align-items: center;
         }
 
+        .grid-background {
+            position: fixed;
+            top: -100vh;
+            left: -100vw;
+            width: 300vw;
+            height: 300vh;
+            background-color: rgba(0, 0, 0, 0.4);
+            background-image: 
+                linear-gradient(to right, rgba(255, 255, 255, 0.5) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255, 255, 255, 0.5) 1px, transparent 1px);
+            background-size: var(--grid-x) var(--grid-y);
+            background-position: calc(var(--origin-x, 50%) - 0.5px + 100vw) calc(var(--origin-y, 50%) - 0.5px + 100vh);
+            pointer-events: none;
+            z-index: 999;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        
+        .grid-background.active {
+            opacity: 1;
+        }
+
         .drag-button {
             position: relative;
             left: 0;
@@ -133,7 +176,7 @@ export class DragCard extends LitElement {
             width: var(--drag-button-width);
 
             touch-action: none;
-            z-index: 0;
+            z-index: 2;
             -webkit-tap-highlight-color: transparent;
         }
 
@@ -207,10 +250,13 @@ export class DragCard extends LitElement {
     //   2. The configuration is updated (e.g., through the card editor)
     //   3. The card is restored from the dashboard
 
-    setConfig(config: DragCardConfig) {
+    public setConfig(config: DragCardConfig) {
         if (!config) throw new Error('Invalid configuration');
 
         this.config = {
+            dragMode: 'spring',
+            gridX: 50,
+            gridY: 50,
             maxDrag: 100,
             returnTime: 200,
             springDamping: 2,
@@ -218,7 +264,7 @@ export class DragCard extends LitElement {
             holdTime: 800,
             multiClickTime: 300,
             deadzone: 20,
-            lockNonEntityDirs: true,
+            lockNonActionDirs: true,
             iconLargerOnClick: false,
             buttonSmallerOnClick: true,
             isStandalone: true,
@@ -252,11 +298,11 @@ export class DragCard extends LitElement {
 
         // Calculate maxMultiClicks based on configured entities
         this.maxMultiClicks = 1; // Default to single click
-        if (this.config.entityQuadruple) {
+        if (this.hasAction('Quadruple')) {
             this.maxMultiClicks = 4;
-        } else if (this.config.entityTriple) {
+        } else if (this.hasAction('Triple')) {
             this.maxMultiClicks = 3;
-        } else if (this.config.entityDouble) {
+        } else if (this.hasAction('Double')) {
             this.maxMultiClicks = 2;
         }
 
@@ -266,10 +312,11 @@ export class DragCard extends LitElement {
     }
 
     // This is the render part (html) here the main structure of the card is defined
-    render() {
+    protected render(): TemplateResult {
         if (!this.config) return html`<div>No configuration</div>`;
 
         const content = html`
+            ${this.config.dragMode === 'grid' ? html`<div class="grid-background ${this.isDragging ? 'active' : ''}" style="--grid-x: ${this.config.gridX || 50}px; --grid-y: ${this.config.gridY || 50}px; --origin-x: ${this.buttonOrigin.x}px; --origin-y: ${this.buttonOrigin.y}px;"></div>` : ''}
             <div class="drag-button"
                 @pointerdown=${this.startDrag}>
                 <div class="drag-button-visual">         
@@ -288,7 +335,7 @@ export class DragCard extends LitElement {
             : html`<ha-card>${content}</ha-card>`;
     }
 
-    renderIcon() {
+    private renderIcon(): TemplateResult {
         if (!this.currentIcon) return html``;
         
         return this.currentIcon.startsWith("/local/") 
@@ -307,6 +354,29 @@ export class DragCard extends LitElement {
             y: this.buttonOrigin.y };
         }
     
+    private updateDynamicOrigin() {
+        if (this.buttonPlaceholder) {
+            const rect = this.buttonPlaceholder.getBoundingClientRect();
+            this.buttonOrigin = {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2
+            };
+            
+            if (this.button && this.button.style.position === 'fixed') {
+                this.button.style.left = `${rect.left}px`;
+                this.button.style.top = `${rect.top}px`;
+            }
+            
+            if (this.config?.dragMode === 'grid') {
+                const gridBg = this.shadowRoot?.querySelector('.grid-background') as HTMLElement;
+                if (gridBg) {
+                    gridBg.style.setProperty('--origin-x', `${this.buttonOrigin.x}px`);
+                    gridBg.style.setProperty('--origin-y', `${this.buttonOrigin.y}px`);
+                }
+            }
+        }
+    }
+
     /*##################################################
     #                                                  #
     #           Start of the drag action               #
@@ -316,12 +386,12 @@ export class DragCard extends LitElement {
     // This function is called when the mouse or touch is pressed down
     // It sets the initial position and starts the drag action
     private startDrag(event: any) {
-        this.button.style.zIndex = '1';
         if (this.config.buttonSmallerOnClick) this.visualButton.style.transform = "scale(0.95)";
         if (this.config.iconLargerOnClick) this.iconContainer.style.transform = "scale(1.1)";
         if (event.pointerType != 'touch') this.hover.style.opacity = "0.01";
 
         this.startTime = Date.now();
+        this.isDragging = true;
 
         // Cancel any ongoing return animation
         if (this.animationFrameID) {
@@ -329,9 +399,70 @@ export class DragCard extends LitElement {
             this.animationFrameID = null;
         }
         
-        const rect = this.button.getBoundingClientRect();
-        const buttonWidth = rect.width;
-        const buttonHeight = rect.height;
+        const actualRect = this.button.getBoundingClientRect();
+        
+        let originRect;
+        if (this.buttonPlaceholder && this.buttonPlaceholder.parentNode) {
+            originRect = this.buttonPlaceholder.getBoundingClientRect();
+        } else {
+            originRect = actualRect;
+        }
+        
+        const buttonWidth = originRect.width;
+        const buttonHeight = originRect.height;
+
+        if (!this.overlay) {
+            this.overlay = document.createElement('div');
+            const shadow = this.overlay.attachShadow({ mode: 'open' });
+            if (this.shadowRoot?.adoptedStyleSheets) {
+                shadow.adoptedStyleSheets = this.shadowRoot.adoptedStyleSheets;
+            }
+            const styleNode = this.shadowRoot?.querySelector('style');
+            if (styleNode) {
+                shadow.appendChild(styleNode.cloneNode(true));
+            }
+        }
+        
+        this.overlay.style.cssText = this.style.cssText;
+        this.overlay.style.position = 'fixed';
+        this.overlay.style.top = '0';
+        this.overlay.style.left = '0';
+        this.overlay.style.width = '100%';
+        this.overlay.style.height = '100%';
+        this.overlay.style.pointerEvents = 'none';
+        this.overlay.style.zIndex = '999999';
+
+        if (!this.buttonPlaceholder) {
+            this.buttonPlaceholder = document.createElement('div');
+        }
+        this.buttonPlaceholder.style.width = `${buttonWidth}px`;
+        this.buttonPlaceholder.style.height = `${buttonHeight}px`;
+        
+        if (this.button.parentNode !== this.overlay.shadowRoot) {
+            this.button.parentNode?.insertBefore(this.buttonPlaceholder, this.button);
+            this.overlay.shadowRoot!.appendChild(this.button);
+            if (!this.overlay.parentNode) {
+                document.body.appendChild(this.overlay);
+            }
+        }
+
+        this.button.style.position = 'fixed';
+        this.button.style.left = `${originRect.left}px`;
+        this.button.style.top = `${originRect.top}px`;
+        this.button.style.margin = '0';
+        this.button.style.width = `${buttonWidth}px`;
+        this.button.style.height = `${buttonHeight}px`;
+        this.button.style.pointerEvents = 'auto';
+
+        this.buttonOrigin = { 
+            x: originRect.left + buttonWidth/2, 
+            y: originRect.top + buttonHeight/2 
+        }; 
+        
+        this.buttonRealPos = {
+            x: actualRect.left + actualRect.width/2,
+            y: actualRect.top + actualRect.height/2
+        };
 
         // Get the mouse/finger position relative to the doc
         const mouseDocument = {
@@ -344,8 +475,8 @@ export class DragCard extends LitElement {
 
         // Get the mouse/finger position relative to the button
         const mouseButton = {
-            x: mouseDocument.x - rect.left,
-            y: mouseDocument.y - rect.top };
+            x: mouseDocument.x - actualRect.left,
+            y: mouseDocument.y - actualRect.top };
 
         // Set ripple start radius to 10% of longer side
         let rippleRadius = 0;
@@ -381,16 +512,21 @@ export class DragCard extends LitElement {
 
         document.addEventListener('pointermove', this.boundDragHandler);
         document.addEventListener('pointerup', this.boundEndDragHandler);
+        window.addEventListener('scroll', this.boundScrollHandler, { capture: true, passive: true });
 
         this.actionCounter = 0;
+        this.lastGridX = 0;
+        this.lastGridY = 0;
         this.isHoldAction = false;
 
         this.holdDetection = window.setTimeout(() => {
             this.isHoldAction = true;
             this.detectSwipeDirection((this.config.deadzone!) * 2, 1);
-            this.repeatAction = window.setInterval(() => {
-                this.detectSwipeDirection((this.config.deadzone!) * 2, 1);
-            }, this.config.repeatTime!);
+            if (this.config.dragMode !== 'grid') {
+                this.repeatAction = window.setInterval(() => {
+                    this.detectSwipeDirection((this.config.deadzone!) * 2, 1);
+                }, this.config.repeatTime!);
+            }
         }, this.config.holdTime!);
     }
 
@@ -407,20 +543,157 @@ export class DragCard extends LitElement {
         
         // Update real position (without scaling)
         this.buttonRealPos = { x: mouseDocument.x - this.mouseOffset.x,
-                                y: mouseDocument.y - this.mouseOffset.y }
+                               y: mouseDocument.y - this.mouseOffset.y };
         
+        this.updateVisualPosition();
+    }
+
+    private onScroll() {
+        if (this.isDragging) {
+            this.updateVisualPosition();
+        }
+    }
+
+    private updateVisualPosition() {
+        this.updateDynamicOrigin();
+
         // Calculate distance from origin
         const d = { x: this.buttonRealPos.x - this.buttonOrigin.x,
                     y: this.buttonRealPos.y - this.buttonOrigin.y };
+
         this.distance = Math.sqrt(d.x*d.x + d.y*d.y);
 
-        // Apply resistance
-        let scale = this.config.maxDrag! / (this.config.maxDrag! + this.distance);
+        let visualX = d.x;
+        let visualY = d.y;
+
+        // Enforce boundary lock visually while keeping raw physics intact
+        if (this.config.lockNonActionDirs) {
+            if ((visualY > 0 && !this.hasAction('Down')) || (visualY < 0 && !this.hasAction('Up'))) {
+                visualY = 0;
+            }
+            if ((visualX > 0 && !this.hasAction('Right')) || (visualX < 0 && !this.hasAction('Left'))) {
+                visualX = 0;
+            }
+        }
+
+        if (this.config.dragMode === 'grid') {
+            const gridX = Math.max(1, this.config.gridX || 50);
+            const gridY = Math.max(1, this.config.gridY || 50);
+
+            const calcVisual = (pos: number, grid: number) => {
+                const stickyRadius = grid * 0.4; // 40% sticky zone around grid line
+                const nearest = Math.round(Math.abs(pos) / grid) * grid * (pos < 0 ? -1 : 1);
+                const dist = pos - nearest;
+                if (Math.abs(dist) < stickyRadius) {
+                    return nearest + dist * 0.1; // Move only 10% locally within sticky bounds
+                } else {
+                    const sign = Math.sign(dist);
+                    const excess = Math.abs(dist) - stickyRadius;
+                    const nonStickyZone = (grid / 2) - stickyRadius;
+                    const startingPoint = stickyRadius * 0.1;
+                    const progress = excess / nonStickyZone;
+                    return nearest + sign * (startingPoint + progress * ((grid / 2) - startingPoint));
+                }
+            };
+
+            const lockedX = visualX;
+            const lockedY = visualY;
+
+            visualX = calcVisual(lockedX, gridX);
+            visualY = calcVisual(lockedY, gridY);
+            
+            let currentGridX = Math.round(Math.abs(lockedX) / gridX) * (lockedX < 0 ? -1 : 1);
+            let currentGridY = Math.round(Math.abs(lockedY) / gridY) * (lockedY < 0 ? -1 : 1);
+            if (lockedX === 0) currentGridX = 0;
+            if (lockedY === 0) currentGridY = 0;
+
+            if (currentGridX > this.lastGridX) {
+                for(let i=0; i < currentGridX - this.lastGridX; i++) this.triggerDirectionAction('right');
+            } else if (currentGridX < this.lastGridX) {
+                for(let i=0; i < this.lastGridX - currentGridX; i++) this.triggerDirectionAction('left');
+            }
+
+            if (currentGridY > this.lastGridY) {
+                for(let i=0; i < currentGridY - this.lastGridY; i++) this.triggerDirectionAction('down');
+            } else if (currentGridY < this.lastGridY) {
+                for(let i=0; i < this.lastGridY - currentGridY; i++) this.triggerDirectionAction('up');
+            }
+
+            this.lastGridX = currentGridX;
+            this.lastGridY = currentGridY;
+        } else {
+            // Apply resistance
+            const scale = this.config.maxDrag! / (this.config.maxDrag! + this.distance);
+            visualX = visualX * scale;
+            visualY = visualY * scale;
+        }
 
         // Update displayed position with scaling
-        this.updatePosition(d.x * scale, d.y * scale);
+        this.updatePosition(visualX, visualY);
     }
     
+    private hasAction(key: 'Up' | 'Down' | 'Left' | 'Right' | 'Center' | 'Hold' | 'Double' | 'Triple' | 'Quadruple'): boolean {
+        if (!this.config) return false;
+        const actionConfig = this.config[`action${key}` as keyof DragCardConfig] as any;
+        const entityId = this.config[`entity${key}` as keyof DragCardConfig];
+        return (actionConfig && actionConfig.action && actionConfig.action !== 'none') || !!entityId;
+    }
+
+    private executeAction(actionKey: keyof DragCardConfig, legacyEntityKey: keyof DragCardConfig) {
+        if (!this.config || !this.hass) return;
+        
+        const actionConfig = this.config[actionKey] as any;
+        if (actionConfig && actionConfig.action && actionConfig.action !== 'none') {
+            const event = new Event('hass-action', { bubbles: true, composed: true });
+            (event as any).detail = { config: { tap_action: actionConfig }, action: 'tap' };
+            this.dispatchEvent(event);
+            return;
+        }
+
+        // Fallback to old behavior
+        const entityId = this.config[legacyEntityKey] as string;
+        if (entityId) {
+            this.callService(entityId);
+        }
+    }
+    
+    private triggerDirectionAction(direction: 'up' | 'down' | 'left' | 'right') {
+        if (!this.config || !this.hass) return;
+        if (this.iconTimeout) clearTimeout(this.iconTimeout);
+
+        switch (direction) {
+            case 'up':
+                if (this.hasAction('Up')) {
+                    this.currentIcon = this.config.icoUp || this.currentIcon;
+                    this.executeAction('actionUp', 'entityUp');
+                }
+                break;
+            case 'down':
+                if (this.hasAction('Down')) {
+                    this.currentIcon = this.config.icoDown || this.currentIcon;
+                    this.executeAction('actionDown', 'entityDown');
+                }
+                break;
+            case 'left':
+                if (this.hasAction('Left')) {
+                    this.currentIcon = this.config.icoLeft || this.currentIcon;
+                    this.executeAction('actionLeft', 'entityLeft');
+                }
+                break;
+            case 'right':
+                if (this.hasAction('Right')) {
+                    this.currentIcon = this.config.icoRight || this.currentIcon;
+                    this.executeAction('actionRight', 'entityRight');
+                }
+                break;
+        }
+
+        this.actionCounter++;
+        this.iconTimeout = window.setTimeout(() => {
+            this.currentIcon = this.config?.icoDefault || this.config?.icoCenter || 'mdi:alert';
+        }, 3000);
+    }
+
 
     // This function detects the swipe direction/multi-click and changes the icon
     // It also triggers callService() for the configured entity
@@ -428,14 +701,16 @@ export class DragCard extends LitElement {
         //console.log("detectSwipeDirection")
         if (!this.config || !this.hass) return;
 
+        this.updateDynamicOrigin();
+
         if (this.iconTimeout) clearTimeout(this.iconTimeout);
 
         if (this.distance < deadzone) {
             if (holdMode == 1 && this.actionCounter == 0) {
                 console.log("hold")
-                if (this.config.entityHold) {
+                if (this.hasAction('Hold')) {
                     this.currentIcon = this.config.icoHold || '';
-                    this.callService(this.config.entityHold);
+                    this.executeAction('actionHold', 'entityHold');
                 }
                 this.endDrag();
             }
@@ -450,19 +725,19 @@ export class DragCard extends LitElement {
 
                         switch (this.clickCount) {
                             case 1:
-                                this.callService(this.config.entityCenter!);
+                                this.executeAction('actionCenter', 'entityCenter');
                                 this.currentIcon = this.config.icoCenter || '';
                                 break;
                             case 2:
-                                this.callService(this.config.entityDouble!);
+                                this.executeAction('actionDouble', 'entityDouble');
                                 this.currentIcon = this.config.icoDouble || '';
                                 break;
                             case 3:
-                                this.callService(this.config.entityTriple!);
+                                this.executeAction('actionTriple', 'entityTriple');
                                 this.currentIcon = this.config.icoTriple || '';
                                 break;
                             case 4:
-                                this.callService(this.config.entityQuadruple!);
+                                this.executeAction('actionQuadruple', 'entityQuadruple');
                                 this.currentIcon = this.config.icoQuadruple || '';
                                 break;
                         }
@@ -472,32 +747,36 @@ export class DragCard extends LitElement {
                     }
                 }, 20);
             }
-        } else if (Math.abs(this.buttonRealPos.x) > Math.abs(this.buttonRealPos.y)) {
-            if (this.buttonRealPos.x > 0) {
-                if (this.config.entityRight) {
-                    this.currentIcon = this.config.icoRight || this.currentIcon;
-                    this.callService(this.config.entityRight);
-                    console.log("swipe right ")
-                }
-            } else {
-                if (this.config.entityLeft) {
-                    this.currentIcon = this.config.icoLeft || this.currentIcon;
-                    this.callService(this.config.entityLeft);
-                    console.log("swipe left ")
-                }
-            }
         } else {
-            if (this.buttonRealPos.y > 0) {
-                if (this.config.entityDown) {
-                    this.currentIcon = this.config.icoDown || this.currentIcon;
-                    this.callService(this.config.entityDown);
-                    console.log("swipe down ")
+            const dx = this.buttonRealPos.x - this.buttonOrigin.x;
+            const dy = this.buttonRealPos.y - this.buttonOrigin.y;
+            if (Math.abs(dx) > Math.abs(dy)) {
+                if (dx > 0) {
+                    if (this.hasAction('Right')) {
+                        this.currentIcon = this.config.icoRight || this.currentIcon;
+                        this.executeAction('actionRight', 'entityRight');
+                        console.log("swipe right ")
+                    }
+                } else {
+                    if (this.hasAction('Left')) {
+                        this.currentIcon = this.config.icoLeft || this.currentIcon;
+                        this.executeAction('actionLeft', 'entityLeft');
+                        console.log("swipe left ")
+                    }
                 }
             } else {
-                if (this.config.entityUp) {
-                    this.currentIcon = this.config.icoUp || this.currentIcon;
-                    this.callService(this.config.entityUp);
-                    console.log("swipe up ")
+                if (dy > 0) {
+                    if (this.hasAction('Down')) {
+                        this.currentIcon = this.config.icoDown || this.currentIcon;
+                        this.executeAction('actionDown', 'entityDown');
+                        console.log("swipe down ")
+                    }
+                } else {
+                    if (this.hasAction('Up')) {
+                        this.currentIcon = this.config.icoUp || this.currentIcon;
+                        this.executeAction('actionUp', 'entityUp');
+                        console.log("swipe up ")
+                    }
                 }
             }
         }
@@ -529,6 +808,7 @@ export class DragCard extends LitElement {
     // It resets the button position and stops the drag action
     private endDrag() {
         //console.log("endDrag");
+        this.isDragging = false;
         document.body.style.cursor = '';
         this.visualButton.style.cursor = 'pointer';
         if (this.config.buttonSmallerOnClick) this.visualButton.style.transform = "scale(1)";
@@ -550,15 +830,28 @@ export class DragCard extends LitElement {
 
         document.removeEventListener('pointermove', this.boundDragHandler);
         document.removeEventListener('pointerup', this.boundEndDragHandler);
+        window.removeEventListener('scroll', this.boundScrollHandler, { capture: true });
         
-        if (this.isHoldAction == false) this.detectSwipeDirection(this.config.deadzone!, 0);
+        if (this.isHoldAction == false) {
+            if (this.config.dragMode === 'grid') {
+                if (this.distance < this.config.deadzone! && this.actionCounter === 0) {
+                    this.detectSwipeDirection(this.config.deadzone!, 0);
+                }
+            } else {
+                this.detectSwipeDirection(this.config.deadzone!, 0);
+            }
+        }
 
         if (this.repeatAction) clearInterval(this.repeatAction); 
         if (this.holdDetection) clearTimeout(this.holdDetection);
 
+        this.updateDynamicOrigin();
+
         // Animate return if not at origin
         if (this.buttonRealPos.x !== this.buttonOrigin.x || this.buttonRealPos.y !== this.buttonOrigin.y) {
             this.animateReturn();
+        } else {
+            this.cleanupDrag();
         }
     }
 
@@ -571,6 +864,8 @@ export class DragCard extends LitElement {
         const animate = (timestamp: number) => {
             // Check if we're still supposed to animate (might have been interrupted by new drag)
             if (!this.animationFrameID) return;
+
+            this.updateDynamicOrigin();
 
             const elapsed = timestamp - startTime;
             const progress = Math.min(elapsed / this.config.returnTime!, 1);
@@ -595,44 +890,72 @@ export class DragCard extends LitElement {
                         y: this.buttonRealPos.y - this.buttonOrigin.y};
             this.distance = Math.sqrt(d.x*d.x + d.y*d.y);
 
-            // Apply resistance
-            let scale = this.config.maxDrag! / (this.config.maxDrag! + this.distance);
+            let visualX = d.x;
+            let visualY = d.y;
+            if (this.config.lockNonActionDirs) {
+                if ((visualY > 0 && !this.hasAction('Down')) || (visualY < 0 && !this.hasAction('Up'))) {
+                    visualY = 0;
+                }
+                if ((visualX > 0 && !this.hasAction('Right')) || (visualX < 0 && !this.hasAction('Left'))) {
+                    visualX = 0;
+                }
+            }
 
-            // Update displayed position with scaling
-            this.updatePosition(d.x * scale, d.y * scale);
+            if (this.config.dragMode !== 'grid') {
+                const scale = this.config.maxDrag! / (this.config.maxDrag! + this.distance);
+                visualX = visualX * scale;
+                visualY = visualY * scale;
+            }
+            this.updatePosition(visualX, visualY);
 
-            if (progress < 1) this.animationFrameID = requestAnimationFrame(animate);
-            else this.button.style.zIndex = '0';
+            if (progress < 1) {
+                this.animationFrameID = requestAnimationFrame(animate);
+            } else {
+                this.cleanupDrag();
+            }
         }
         this.animationFrameID = requestAnimationFrame(animate);
     }
 
-    private updatePosition(x: number, y: number) {
-        // Reset pos for non existent entity directions
-        if(this.config.lockNonEntityDirs){
-            if((y > 0 && this.config.entityDown == null) || (y < 0 && this.config.entityUp == null))
-                y = 0;
-            if((x > 0 && this.config.entityRight == null) || (x < 0 && this.config.entityLeft == null))
-                x = 0;
+    private cleanupDrag() {
+        if (this.buttonPlaceholder && this.buttonPlaceholder.parentNode) {
+            this.buttonPlaceholder.parentNode.insertBefore(this.button, this.buttonPlaceholder);
+            this.buttonPlaceholder.remove();
         }
+        if (this.overlay && this.overlay.parentNode) {
+            this.overlay.remove();
+        }
+        
+        this.button.style.position = '';
+        this.button.style.left = '';
+        this.button.style.top = '';
+        this.button.style.margin = '';
+        this.button.style.width = '';
+        this.button.style.height = '';
+        this.button.style.pointerEvents = '';
+        
+        this.updatePosition(0, 0);
+        this.initOrigin();
+    }
 
+    private updatePosition(x: number, y: number) {
         // Update displayed position with scaling applied
         this.button.style.transform = `translate(${x}px, ${y}px)`;
     }
 
     // Required by Lovelace to show configuration UI
-    static getConfigElement() {
+    public static getConfigElement() {
         return document.createElement("drag-card-editor");
     }
 
     // Default configuration for new cards with all the default values for variables
-    static getStubConfig(): Partial<DragCardConfig> {
+    public static getStubConfig(): Partial<DragCardConfig> {
         return {
-            entityUp: 'button.volume_up',
-            entityDown: 'button.volume_down',
-            entityLeft: 'button.control_left',
-            entityRight: 'button.control_right',
-            entityCenter: 'button.control_enter',
+            actionUp: { action: 'toggle' },
+            actionDown: { action: 'toggle' },
+            actionLeft: { action: 'toggle' },
+            actionRight: { action: 'toggle' },
+            actionCenter: { action: 'toggle' },
             icoDefault: 'mdi:drag-variant',
             icoUp: 'mdi:chevron-up',
             icoDown: 'mdi:chevron-down',
@@ -664,12 +987,8 @@ export class DragCard extends LitElement {
 // This is the support class for the visual configuration editor
 @customElement('drag-card-editor')
 export class DragCardEditor extends LitElement {
-    @property({ attribute: false }) hass?: HomeAssistant;
+    @property({ attribute: false }) hass?: any;
     @property({ attribute: false }) config?: DragCardConfig;
-
-    // These are filters for entity selector drop-downs
-    private _domains = ['button', 'script', 'light', 'switch', 'cover'];
-    private _domains2 = ['light', 'cover'];
 
     static styles = css`
         .tab {
@@ -689,7 +1008,7 @@ export class DragCardEditor extends LitElement {
         ha-formfield { display: block; margin-bottom: 8px; }
     `;
 
-    setConfig(config: DragCardConfig) {
+    public setConfig(config: DragCardConfig) {
         this.config = config;
     }
 
@@ -703,7 +1022,7 @@ export class DragCardEditor extends LitElement {
         // List of numeric configuration keys
         const numericKeys = [
             'maxDrag', 'returnTime', 'springDamping', 'repeatTime', 
-            'holdTime', 'multiClickTime', 'deadzone'
+            'holdTime', 'multiClickTime', 'deadzone', 'gridX', 'gridY'
         ];
 
         // Get the value, checking for empty string
@@ -723,11 +1042,15 @@ export class DragCardEditor extends LitElement {
         const newConfig = { ...this.config, [configKey]: value };
         this.config = newConfig;
         this.requestUpdate();
-        fireEvent(this, "config-changed", { config: newConfig });
+        this.dispatchEvent(new CustomEvent('config-changed', {
+            detail: { config: newConfig },
+            bubbles: true,
+            composed: true,
+        }));
     }      
       
     // This is the html structure for the visual configuration editor
-    render() {
+    protected render(): TemplateResult {
         if (!this.config || !this.hass) return html`<div>No configuration</div>`;
 
         return html`
@@ -753,15 +1076,17 @@ export class DragCardEditor extends LitElement {
                 </div>
 
                 <div class="tab">
-                    <div class="tab-label">Entities</div>
+                    <div class="tab-label">Actions</div>
                     <div class="tab-content">
-                        ${this.renderEntityPicker('entityUp', 'Swipe Up')}
-                        ${this.renderEntityPicker('entityDown', 'Swipe Down')}
-                        ${this.renderEntityPicker('entityLeft', 'Swipe Left')}
-                        ${this.renderEntityPicker('entityRight', 'Swipe Right')}
-                        ${this.renderEntityPicker('entityCenter', 'Center Click')}
-                        ${this.renderEntityPicker('entityDouble', 'Double Click')}
-                        ${this.renderEntityPicker('entityHold', 'Hold Action')}
+                        ${this.renderActionPicker('actionUp', 'Swipe Up')}
+                        ${this.renderActionPicker('actionDown', 'Swipe Down')}
+                        ${this.renderActionPicker('actionLeft', 'Swipe Left')}
+                        ${this.renderActionPicker('actionRight', 'Swipe Right')}
+                        ${this.renderActionPicker('actionCenter', 'Center Click')}
+                        ${this.renderActionPicker('actionDouble', 'Double Click')}
+                        ${this.renderActionPicker('actionTriple', 'Triple Click')}
+                        ${this.renderActionPicker('actionQuadruple', 'Quadruple Click')}
+                        ${this.renderActionPicker('actionHold', 'Hold Action')}
                     </div>
                 </div>
 
@@ -782,7 +1107,12 @@ export class DragCardEditor extends LitElement {
                 <div class="tab">
                     <div class="tab-label">Advanced</div>
                     <div class="tab-content">
-                        ${this.renderCheckbox('lockNonEntityDirs', 'Lock Non-Entity Directions', true)}
+                        ${this.renderSelect('dragMode', 'Drag Mode', ['spring', 'grid'], 'spring')}
+                        ${this.config.dragMode === 'grid' ? html`
+                            ${this.renderNumberInput('gridX', 'Horizontal Grid Distance (px)', 50)}
+                            ${this.renderNumberInput('gridY', 'Vertical Grid Distance (px)', 50)}
+                        ` : ''}
+                        ${this.renderCheckbox('lockNonActionDirs', 'Lock Non-Action Directions', true)}
                         ${this.renderCheckbox('isStandalone', 'Standalone', true)} 
                         ${this.renderNumberInput('maxDrag', 'Max Drag', 100)}
                         ${this.renderNumberInput('returnTime', 'Return Time', 200)}
@@ -798,14 +1128,26 @@ export class DragCardEditor extends LitElement {
     }
 
     // These are the building blocks for the configurator html
-    private renderEntityPicker(configKey: keyof DragCardConfig, label: string, domain?: any) {
+    private renderActionPicker(configKey: keyof DragCardConfig, label: string) {
         return html`
             <ha-selector
                 .hass=${this.hass}
                 .label=${label}
-                .selector=${{ entity: domain ? { domain } : {} }}
+                .selector=${{ "ui-action": {} }}
                 .configValue=${configKey}
-                .value=${this.config?.[configKey] || ""}
+                .value=${this.config?.[configKey]}
+                @value-changed=${this._valueChanged}
+            ></ha-selector>
+        `;
+    }
+    private renderSelect(configKey: keyof DragCardConfig, label: string, options: string[], defaultValue: string) {
+        return html`
+            <ha-selector
+                .hass=${this.hass}
+                .label=${label}
+                .selector=${{ select: { options } }}
+                .configValue=${configKey}
+                .value=${this.config![configKey] || defaultValue}
                 @value-changed=${this._valueChanged}
             ></ha-selector>
         `;

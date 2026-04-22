@@ -70,20 +70,23 @@ resources:
 | holdTime | number | 800 | Time until hold action triggers in ms
 | multiClickTime | number | 300 | Time between clicks for multi-click in ms
 | deadzone | number | 20 | Radius where swipe actions won't register
-| lockNonEntityDirs | boolean | true | Disable dragging in directions without entities
+| dragMode | string | spring | Dragging behavior: `spring` or `grid` |
+| gridX | number | 50 | Horizontal grid distance in pixels (grid mode only) |
+| gridY | number | 50 | Vertical grid distance in pixels (grid mode only) |
+| lockNonActionDirs | boolean | true | Disable dragging in directions without actions
 
-#### Entity Options
+#### Action Options
 | Name | Description |
 |------|-------------|
-| entityUp | Button/Switch/Skript that gets activated/toggled when swiping up the button.
-| entityDown | Button/Switch/Skript that gets activated/toggled when swiping down the button.
-| entityLeft | Button/Switch/Skript that gets activated/toggled when swiping left on button.
-| entityRight | Button/Switch/Skript that gets activated/toggled when swiping right on button.
-| entityCenter | Button/Switch/Skript that gets activated/toggled when clicking on the button.
-| entityDouble | Button/Switch/Skript that gets activated/toggled when double clicking on the button.
-| entityTriple | Button/Switch/Skript that gets activated/toggled when triple clicking up on the button.
-| entityQuadruple | Button/Switch/Skript that gets activated/toggled when quadruple clicking up on the button.
-| entityHold | Button/Switch/Skript that gets activated/toggled when clicking the button for a long time without swiping.
+| actionUp | Standard HA Action triggered when swiping up the button.
+| actionDown | Standard HA Action triggered when swiping down the button.
+| actionLeft | Standard HA Action triggered when swiping left on button.
+| actionRight | Standard HA Action triggered when swiping right on button.
+| actionCenter | Standard HA Action triggered when clicking on the button.
+| actionDouble | Standard HA Action triggered when double clicking on the button.
+| actionTriple | Standard HA Action triggered when triple clicking on the button.
+| actionQuadruple | Standard HA Action triggered when quadruple clicking on the button.
+| actionHold | Standard HA Action triggered when clicking the button for a long time without swiping.
 
 #### Icon Options
 | Name | Description |
