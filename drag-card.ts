@@ -106,6 +106,7 @@ export class DragCard extends LitElement {
     private handleClick: number | null = null;
     private iconTimeout: number | null = null;
     private animationFrameID: number | null = null;
+    private rippleTimeout: number | null = null;
 
     private button!: HTMLElement;
     private visualButton!: HTMLElement;
@@ -357,10 +358,23 @@ export class DragCard extends LitElement {
     private updateDynamicOrigin() {
         if (this.buttonPlaceholder) {
             const rect = this.buttonPlaceholder.getBoundingClientRect();
-            this.buttonOrigin = {
+            const newOrigin = {
                 x: rect.left + rect.width / 2,
                 y: rect.top + rect.height / 2
             };
+            
+            if (this.buttonOrigin.x !== 0 || this.buttonOrigin.y !== 0) {
+                const deltaX = newOrigin.x - this.buttonOrigin.x;
+                const deltaY = newOrigin.y - this.buttonOrigin.y;
+                if (deltaX !== 0 || deltaY !== 0) {
+                    this.buttonRealPos.x += deltaX;
+                    this.buttonRealPos.y += deltaY;
+                    this.mouseOffset.x -= deltaX;
+                    this.mouseOffset.y -= deltaY;
+                }
+            }
+
+            this.buttonOrigin = newOrigin;
             
             if (this.button && this.button.style.position === 'fixed') {
                 this.button.style.left = `${rect.left}px`;
@@ -392,6 +406,11 @@ export class DragCard extends LitElement {
 
         this.startTime = Date.now();
         this.isDragging = true;
+
+        if (this.rippleTimeout) {
+            clearTimeout(this.rippleTimeout);
+            this.rippleTimeout = null;
+        }
 
         // Cancel any ongoing return animation
         if (this.animationFrameID) {
@@ -520,6 +539,8 @@ export class DragCard extends LitElement {
         this.isHoldAction = false;
 
         this.holdDetection = window.setTimeout(() => {
+            if (this.actionCounter > 0) return;
+
             this.isHoldAction = true;
             this.detectSwipeDirection((this.config.deadzone!) * 2, 1);
             if (this.config.dragMode !== 'grid') {
@@ -701,18 +722,17 @@ export class DragCard extends LitElement {
         //console.log("detectSwipeDirection")
         if (!this.config || !this.hass) return;
 
-        this.updateDynamicOrigin();
-
         if (this.iconTimeout) clearTimeout(this.iconTimeout);
 
         if (this.distance < deadzone) {
-            if (holdMode == 1 && this.actionCounter == 0) {
+            if (holdMode == 1) {
                 console.log("hold")
                 if (this.hasAction('Hold')) {
                     this.currentIcon = this.config.icoHold || '';
                     this.executeAction('actionHold', 'entityHold');
                 }
                 this.endDrag();
+                return;
             }
             if (holdMode == 0) {
                 this.clickCount++;
@@ -815,17 +835,12 @@ export class DragCard extends LitElement {
         if (this.config.iconLargerOnClick) this.iconContainer.style.transform = "scale(1)";
         this.hover.style.opacity = "0";
 
-        const handleTransitionEnd = (event: TransitionEvent) => {
-            if (event.propertyName === 'transform') {
-                this.ripple.style.opacity = '0';
-                this.ripple.removeEventListener('transitionend', handleTransitionEnd);
-            }
-        };
-
         if (Date.now() - this.startTime >= this.rippleTime) {
             this.ripple.style.opacity = '0';
         } else {
-            this.ripple.addEventListener('transitionend', handleTransitionEnd);
+            this.rippleTimeout = window.setTimeout(() => {
+                this.ripple.style.opacity = '0';
+            }, this.rippleTime - (Date.now() - this.startTime));
         }
 
         document.removeEventListener('pointermove', this.boundDragHandler);
@@ -857,8 +872,8 @@ export class DragCard extends LitElement {
 
     // This function animates the button back to the center of the card
     private animateReturn() {
-        const startButtonReturn = { x : this.buttonRealPos.x,
-                                    y : this.buttonRealPos.y };
+        const startD = { x : this.buttonRealPos.x - this.buttonOrigin.x,
+                         y : this.buttonRealPos.y - this.buttonOrigin.y };
         const startTime = performance.now();
 
         const animate = (timestamp: number) => {
@@ -868,7 +883,7 @@ export class DragCard extends LitElement {
             this.updateDynamicOrigin();
 
             const elapsed = timestamp - startTime;
-            const progress = Math.min(elapsed / this.config.returnTime!, 1);
+            const progress = Math.max(0, Math.min(elapsed / this.config.returnTime!, 1));
             
             let eased: number = 0;
             // Spring easing - starts fast and ends with a gentle settle
@@ -881,9 +896,9 @@ export class DragCard extends LitElement {
                 eased = 1 - Math.pow(2, -10 * progress) * Math.cos(progress * Math.PI * 2 / this.config.springDamping!);
             }
             
-            // Update real position
-            this.buttonRealPos = { x : startButtonReturn.x + (this.buttonOrigin.x - startButtonReturn.x) * eased,
-                                     y : startButtonReturn.y + (this.buttonOrigin.y - startButtonReturn.y) * eased };
+            // Update real position relative to origin
+            this.buttonRealPos = { x : this.buttonOrigin.x + startD.x * (1 - eased),
+                                   y : this.buttonOrigin.y + startD.y * (1 - eased) };
             
             // Calculate distance from origin
             const d = { x: this.buttonRealPos.x - this.buttonOrigin.x,
