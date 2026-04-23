@@ -664,6 +664,20 @@ export class DragCard extends LitElement {
         if (!this.config || !this.hass) return;
         
         const actionConfig = this.config[actionKey] as any;
+        const entityId = this.config[legacyEntityKey] as string;
+
+        // Check if an action actually exists before requesting haptic feedback
+        const hasValidAction = (actionConfig && actionConfig.action && actionConfig.action !== 'none') || !!entityId;
+        
+        if (hasValidAction) {
+            // Explicitly fire haptic feedback so it works even when nested inside other cards
+            this.dispatchEvent(new CustomEvent('haptic', {
+                detail: 'light', // Standard HA tap vibration
+                bubbles: true,
+                composed: true
+            }));
+        }
+
         if (actionConfig && actionConfig.action && actionConfig.action !== 'none') {
             const event = new Event('hass-action', { bubbles: true, composed: true });
             (event as any).detail = { config: { tap_action: actionConfig }, action: 'tap' };
@@ -672,7 +686,6 @@ export class DragCard extends LitElement {
         }
 
         // Fallback to old behavior
-        const entityId = this.config[legacyEntityKey] as string;
         if (entityId) {
             this.callService(entityId);
         }
