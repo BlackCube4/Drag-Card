@@ -179,6 +179,7 @@ export class DragCard extends LitElement {
             touch-action: none;
             z-index: 2;
             -webkit-tap-highlight-color: transparent;
+            will-change: transform;
         }
 
         .drag-button-visual {
@@ -570,14 +571,13 @@ export class DragCard extends LitElement {
     }
 
     private onScroll() {
-        if (this.isDragging) {
-            this.updateVisualPosition();
+        if (this.isDragging || this.animationFrameID) {
+            this.updateDynamicOrigin();
+            if (this.isDragging) this.updateVisualPosition();
         }
     }
 
     private updateVisualPosition() {
-        this.updateDynamicOrigin();
-
         // Calculate distance from origin
         const d = { x: this.buttonRealPos.x - this.buttonOrigin.x,
                     y: this.buttonRealPos.y - this.buttonOrigin.y };
@@ -858,7 +858,6 @@ export class DragCard extends LitElement {
 
         document.removeEventListener('pointermove', this.boundDragHandler);
         document.removeEventListener('pointerup', this.boundEndDragHandler);
-        window.removeEventListener('scroll', this.boundScrollHandler, { capture: true });
         
         if (this.isHoldAction == false) {
             if (this.config.dragMode === 'grid') {
@@ -892,8 +891,6 @@ export class DragCard extends LitElement {
         const animate = (timestamp: number) => {
             // Check if we're still supposed to animate (might have been interrupted by new drag)
             if (!this.animationFrameID) return;
-
-            this.updateDynamicOrigin();
 
             const elapsed = timestamp - startTime;
             const progress = Math.max(0, Math.min(elapsed / this.config.returnTime!, 1));
@@ -946,6 +943,8 @@ export class DragCard extends LitElement {
     }
 
     private cleanupDrag() {
+        window.removeEventListener('scroll', this.boundScrollHandler, { capture: true });
+
         if (this.buttonPlaceholder && this.buttonPlaceholder.parentNode) {
             this.buttonPlaceholder.parentNode.insertBefore(this.button, this.buttonPlaceholder);
             this.buttonPlaceholder.remove();
