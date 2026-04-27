@@ -90,6 +90,7 @@ export class DragCard extends LitElement {
     private maxMultiClicks = 1;
     private isHoldAction = false;
     private lastVibrate = 0;
+    private hasVibratedOnce = false;
 
     private holdDetection: number | null = null;
     private repeatAction: number | null = null;
@@ -704,13 +705,27 @@ export class DragCard extends LitElement {
         const hasValidAction = actionConfig && actionConfig.action && actionConfig.action !== 'none';
         
         if (hasValidAction) {
-            if (navigator.vibrate) {
-                const now = Date.now();
-                // 50ms cooldown prevents rapid-fire double clicks on simultaneous grid crosses
-                if (now - this.lastVibrate > 50) {
-                    navigator.vibrate(50); // Increase this value (in ms) for a stronger feeling vibration
-                    this.lastVibrate = now;
+            const now = Date.now();
+            // 100ms cooldown prevents rapid-fire double clicks on simultaneous grid crosses
+            if (now - this.lastVibrate > 100) {
+                if (navigator.vibrate) {
+                    if (!this.hasVibratedOnce) {
+                        // First action: Use HA native event to bypass strict browser blocks
+                        const hapticEvent = new Event('haptic', { bubbles: true, composed: true });
+                        (hapticEvent as any).detail = 'light';
+                        this.dispatchEvent(hapticEvent);
+                    } else {
+                        // Subsequent actions: Use native web API for crisp, non-doubling feedback
+                        navigator.vibrate(40);
+                    }
+                } else {
+                    // iOS / unsupported devices: Always use HA native event
+                    const hapticEvent = new Event('haptic', { bubbles: true, composed: true });
+                    (hapticEvent as any).detail = 'light';
+                    this.dispatchEvent(hapticEvent);
                 }
+                
+                this.lastVibrate = now;
             }
 
             // Manually execute the action to bypass Home Assistant's mandatory haptic feedback
@@ -874,6 +889,13 @@ export class DragCard extends LitElement {
     // It resets the button position and stops the drag action
     private endDrag() {
         if (!this.isDragging) return; // Prevent double execution
+
+        // The browser unlocks the vibration API after the first complete user interaction.
+        // We prime it here upon release, so all subsequent drags use the crisp native web API.
+        if (!this.hasVibratedOnce && navigator.vibrate) {
+            navigator.vibrate(1);
+            this.hasVibratedOnce = true;
+        }
 
         this.isDragging = false;
         document.body.style.cursor = '';
