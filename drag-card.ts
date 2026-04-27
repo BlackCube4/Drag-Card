@@ -13,16 +13,6 @@ interface DragCardConfig {
     actionTriple?: any;
     actionQuadruple?: any;
 
-    entityUp?: string;
-    entityDown?: string;
-    entityLeft?: string;
-    entityRight?: string;
-    entityCenter?: string;
-    entityHold?: string;
-    entityDouble?: string;
-    entityTriple?: string;
-    entityQuadruple?: string;
-
     icoDefault?: string;
     icoUp?: string;
     icoRight?: string;
@@ -97,9 +87,9 @@ export class DragCard extends LitElement {
     private distance = 0;
     private actionCounter = 0;
     private clickCount = 0;
-    private lastClick: number | null = null;
     private maxMultiClicks = 1;
     private isHoldAction = false;
+    private lastVibrate = 0;
 
     private holdDetection: number | null = null;
     private repeatAction: number | null = null;
@@ -118,6 +108,7 @@ export class DragCard extends LitElement {
 
     private boundDragHandler = this.drag.bind(this);
     private boundEndDragHandler = this.endDrag.bind(this);
+    private boundCancelDragHandler = this.endDrag.bind(this);
     private boundScrollHandler = this.onScroll.bind(this);
 
     protected firstUpdated() {
@@ -165,6 +156,7 @@ export class DragCard extends LitElement {
             transition: opacity 0.2s ease;
         }
         
+
         .grid-background.active {
             opacity: 1;
         }
@@ -308,8 +300,6 @@ export class DragCard extends LitElement {
             this.maxMultiClicks = 2;
         }
 
-        console.log("maxMultiClicks: ", this.maxMultiClicks);
-
         this.initOrigin()
     }
 
@@ -320,7 +310,16 @@ export class DragCard extends LitElement {
         const content = html`
             ${this.config.dragMode === 'grid' ? html`<div class="grid-background ${this.isDragging ? 'active' : ''}" style="--grid-x: ${this.config.gridX || 50}px; --grid-y: ${this.config.gridY || 50}px; --origin-x: ${this.buttonOrigin.x}px; --origin-y: ${this.buttonOrigin.y}px;"></div>` : ''}
             <div class="drag-button"
-                @pointerdown=${this.startDrag}>
+                @pointerdown=${this.startDrag}
+                @pointerup=${(e: Event) => {
+                    e.stopPropagation();
+                    if (this.isDragging) this.endDrag();
+                }}
+                @pointercancel=${(e: Event) => {
+                    e.stopPropagation();
+                    if (this.isDragging) this.endDrag();
+                }}
+                @click=${(e: Event) => { e.stopPropagation(); e.preventDefault(); }}>
                 <div class="drag-button-visual">         
                     <div class="icon-container">
                         ${this.renderIcon()}
@@ -331,10 +330,7 @@ export class DragCard extends LitElement {
             </div>
         `;
 
-        // The option to wrap it differently when standalone
-        return this.config.isStandalone === false 
-            ? html`<ha-card>${content}</ha-card>`
-            : html`<ha-card>${content}</ha-card>`;
+        return html`<ha-card>${content}</ha-card>`;
     }
 
     private renderIcon(): TemplateResult {
@@ -401,6 +397,16 @@ export class DragCard extends LitElement {
     // This function is called when the mouse or touch is pressed down
     // It sets the initial position and starts the drag action
     private startDrag(event: any) {
+        if (this.isDragging) return; // Prevent multi-touch digitizer confusion
+
+        event.stopPropagation(); // Stop parent cards from feeling the touch and firing duplicate haptics
+        
+        if (event.pointerId !== undefined) {
+            try {
+                this.button.setPointerCapture(event.pointerId);
+            } catch (e) {}
+        }
+
         if (this.config.buttonSmallerOnClick) this.visualButton.style.transform = "scale(0.95)";
         if (this.config.iconLargerOnClick) this.iconContainer.style.transform = "scale(1.1)";
         if (event.pointerType != 'touch') this.hover.style.opacity = "0.01";
@@ -530,25 +536,31 @@ export class DragCard extends LitElement {
         this.ripple.style.transform = 'scale(' + newScale + ')';
         this.ripple.style.opacity = '0.04';
 
-        document.addEventListener('pointermove', this.boundDragHandler);
-        document.addEventListener('pointerup', this.boundEndDragHandler);
+        document.addEventListener('pointermove', this.boundDragHandler, { capture: true });
+        document.addEventListener('pointerup', this.boundEndDragHandler, { capture: true });
+        document.addEventListener('pointercancel', this.boundCancelDragHandler, { capture: true });
         window.addEventListener('scroll', this.boundScrollHandler, { capture: true, passive: true });
 
         this.actionCounter = 0;
         this.lastGridX = 0;
         this.lastGridY = 0;
+        this.distance = 0; // Guarantee fresh distance so previous swipes don't block holds
         this.isHoldAction = false;
+
+        if (this.repeatAction) clearInterval(this.repeatAction);
+        if (this.holdDetection) clearTimeout(this.holdDetection);
 
         this.holdDetection = window.setTimeout(() => {
             if (this.actionCounter > 0) return;
 
             this.isHoldAction = true;
-            this.detectSwipeDirection((this.config.deadzone!) * 2, 1);
+            // Set repeat action FIRST so if detectSwipeDirection calls endDrag, it gets properly cleared!
             if (this.config.dragMode !== 'grid') {
                 this.repeatAction = window.setInterval(() => {
                     this.detectSwipeDirection((this.config.deadzone!) * 2, 1);
                 }, this.config.repeatTime!);
             }
+            this.detectSwipeDirection((this.config.deadzone!) * 2, 1);
         }, this.config.holdTime!);
     }
 
@@ -556,6 +568,7 @@ export class DragCard extends LitElement {
     // It calculates the distance moved and updates the position of the button
     private drag(event: any) {        
         event.preventDefault();
+        event.stopPropagation();
         document.body.style.cursor = 'grabbing';
         this.visualButton.style.cursor = 'grabbing';
 
@@ -623,10 +636,29 @@ export class DragCard extends LitElement {
             visualX = calcVisual(lockedX, gridX);
             visualY = calcVisual(lockedY, gridY);
             
-            let currentGridX = Math.round(Math.abs(lockedX) / gridX) * (lockedX < 0 ? -1 : 1);
-            let currentGridY = Math.round(Math.abs(lockedY) / gridY) * (lockedY < 0 ? -1 : 1);
-            if (lockedX === 0) currentGridX = 0;
-            if (lockedY === 0) currentGridY = 0;
+            let currentGridX = this.lastGridX;
+            let currentGridY = this.lastGridY;
+
+            const idealGridX = Math.round(lockedX / gridX);
+            const idealGridY = Math.round(lockedY / gridY);
+
+            // Add 15% hysteresis buffer to prevent fluttering on grid lines (double clicks)
+            const bufferX = gridX * 0.15;
+            const bufferY = gridY * 0.15;
+
+            if (idealGridX !== this.lastGridX) {
+                const boundaryX = (idealGridX + this.lastGridX) / 2 * gridX;
+                if (lockedX > boundaryX + bufferX || lockedX < boundaryX - bufferX) {
+                    currentGridX = idealGridX;
+                }
+            }
+
+            if (idealGridY !== this.lastGridY) {
+                const boundaryY = (idealGridY + this.lastGridY) / 2 * gridY;
+                if (lockedY > boundaryY + bufferY || lockedY < boundaryY - bufferY) {
+                    currentGridY = idealGridY;
+                }
+            }
 
             if (currentGridX > this.lastGridX) {
                 for(let i=0; i < currentGridX - this.lastGridX; i++) this.triggerDirectionAction('right');
@@ -656,38 +688,72 @@ export class DragCard extends LitElement {
     private hasAction(key: 'Up' | 'Down' | 'Left' | 'Right' | 'Center' | 'Hold' | 'Double' | 'Triple' | 'Quadruple'): boolean {
         if (!this.config) return false;
         const actionConfig = this.config[`action${key}` as keyof DragCardConfig] as any;
-        const entityId = this.config[`entity${key}` as keyof DragCardConfig];
-        return (actionConfig && actionConfig.action && actionConfig.action !== 'none') || !!entityId;
+        return (actionConfig && actionConfig.action && actionConfig.action !== 'none');
     }
 
-    private executeAction(actionKey: keyof DragCardConfig, legacyEntityKey: keyof DragCardConfig) {
+    private executeAction(actionKey: keyof DragCardConfig) {
         if (!this.config || !this.hass) return;
         
         const actionConfig = this.config[actionKey] as any;
-        const entityId = this.config[legacyEntityKey] as string;
-
-        // Check if an action actually exists before requesting haptic feedback
-        const hasValidAction = (actionConfig && actionConfig.action && actionConfig.action !== 'none') || !!entityId;
+        const hasValidAction = actionConfig && actionConfig.action && actionConfig.action !== 'none';
         
         if (hasValidAction) {
-            // Explicitly fire haptic feedback so it works even when nested inside other cards
-            this.dispatchEvent(new CustomEvent('haptic', {
-                detail: 'light', // Standard HA tap vibration
-                bubbles: true,
-                composed: true
-            }));
-        }
+            if (navigator.vibrate) {
+                const now = Date.now();
+                // 50ms cooldown prevents rapid-fire double clicks on simultaneous grid crosses
+                if (now - this.lastVibrate > 50) {
+                    navigator.vibrate(10);
+                    this.lastVibrate = now;
+                }
+            }
 
-        if (actionConfig && actionConfig.action && actionConfig.action !== 'none') {
-            const event = new Event('hass-action', { bubbles: true, composed: true });
-            (event as any).detail = { config: { tap_action: actionConfig }, action: 'tap' };
-            this.dispatchEvent(event);
-            return;
-        }
+            // Manually execute the action to bypass Home Assistant's mandatory haptic feedback
+            let handled = false;
+            try {
+                const action = actionConfig.action;
+                if (action === 'call-service' || action === 'perform-action') {
+                    const service = actionConfig.service || actionConfig.perform_action;
+                    if (service) {
+                        const [domain, serviceName] = service.split('.');
+                        const data = { ...(actionConfig.data || {}), ...(actionConfig.target || {}) };
+                        this.hass.callService(domain, serviceName, data);
+                        handled = true;
+                    }
+                } else if (action === 'toggle' || action === 'turn_on' || action === 'turn_off') {
+                    let entityId = actionConfig.entity || (actionConfig.target ? actionConfig.target.entity_id : null);
+                    if (Array.isArray(entityId)) entityId = entityId[0]; // Extract if list
+                    
+                    if (entityId) {
+                        const domain = entityId.split('.')[0];
+                        let service = action;
+                        if (action === 'toggle' && domain === 'button') service = 'press';
+                        else if (action === 'toggle' && domain === 'script') service = 'turn_on';
+                        else if (action === 'toggle' && domain === 'scene') service = 'turn_on';
+                        
+                        this.hass.callService(domain, service, { entity_id: entityId });
+                        handled = true;
+                    }
+                } else if (action === 'navigate') {
+                    const path = actionConfig.navigation_path;
+                    if (path) {
+                        window.history.pushState(null, '', path);
+                        window.dispatchEvent(new CustomEvent('location-changed'));
+                        handled = true;
+                    }
+                } else if (action === 'none') {
+                    handled = true;
+                }
+            } catch (e) {
+                console.warn("Drag-Card: Failed to manually execute action", e);
+            }
 
-        // Fallback to old behavior
-        if (entityId) {
-            this.callService(entityId);
+            // Fallback only if the custom execution wasn't able to handle the action type
+            if (!handled) {
+                const modifiedActionConfig = { ...actionConfig, haptic: 'none' };
+                const event = new Event('hass-action', { bubbles: true, composed: true });
+                (event as any).detail = { config: { tap_action: modifiedActionConfig }, action: 'tap' };
+                this.dispatchEvent(event);
+            }
         }
     }
     
@@ -699,25 +765,25 @@ export class DragCard extends LitElement {
             case 'up':
                 if (this.hasAction('Up')) {
                     this.currentIcon = this.config.icoUp || this.currentIcon;
-                    this.executeAction('actionUp', 'entityUp');
+                    this.executeAction('actionUp');
                 }
                 break;
             case 'down':
                 if (this.hasAction('Down')) {
                     this.currentIcon = this.config.icoDown || this.currentIcon;
-                    this.executeAction('actionDown', 'entityDown');
+                    this.executeAction('actionDown');
                 }
                 break;
             case 'left':
                 if (this.hasAction('Left')) {
                     this.currentIcon = this.config.icoLeft || this.currentIcon;
-                    this.executeAction('actionLeft', 'entityLeft');
+                    this.executeAction('actionLeft');
                 }
                 break;
             case 'right':
                 if (this.hasAction('Right')) {
                     this.currentIcon = this.config.icoRight || this.currentIcon;
-                    this.executeAction('actionRight', 'entityRight');
+                    this.executeAction('actionRight');
                 }
                 break;
         }
@@ -737,48 +803,60 @@ export class DragCard extends LitElement {
 
         if (this.iconTimeout) clearTimeout(this.iconTimeout);
 
-        if (this.distance < deadzone) {
-            if (holdMode == 1) {
-                console.log("hold")
+        if (holdMode == 1) {
+            if (this.distance < deadzone) {
                 if (this.hasAction('Hold')) {
                     this.currentIcon = this.config.icoHold || '';
-                    this.executeAction('actionHold', 'entityHold');
+                    this.executeAction('actionHold');
                 }
+                
+                this.actionCounter++;
+                this.iconTimeout = window.setTimeout(() => {
+                    this.currentIcon = this.config?.icoDefault || this.config?.icoCenter || 'mdi:alert';
+                }, 3000);
                 this.endDrag();
-                return;
             }
+            return; // ALWAYS return for holdMode 1 to prevent accidental swipe executions
+        }
+
+        if (this.distance < deadzone) {
             if (holdMode == 0) {
                 this.clickCount++;
-                this.lastClick = Date.now();
-                if (this.handleClick) clearInterval(this.handleClick);
+                if (this.handleClick) clearTimeout(this.handleClick);
 
-                this.handleClick = window.setInterval(() => {
-                    if (Date.now() - this.lastClick! >= (this.config.multiClickTime!) || this.clickCount == (this.maxMultiClicks)) {
-                        console.log('clickCount: ' + this.clickCount);
-
-                        switch (this.clickCount) {
-                            case 1:
-                                this.executeAction('actionCenter', 'entityCenter');
-                                this.currentIcon = this.config.icoCenter || '';
-                                break;
-                            case 2:
-                                this.executeAction('actionDouble', 'entityDouble');
-                                this.currentIcon = this.config.icoDouble || '';
-                                break;
-                            case 3:
-                                this.executeAction('actionTriple', 'entityTriple');
-                                this.currentIcon = this.config.icoTriple || '';
-                                break;
-                            case 4:
-                                this.executeAction('actionQuadruple', 'entityQuadruple');
-                                this.currentIcon = this.config.icoQuadruple || '';
-                                break;
-                        }
-
+                const triggerClick = () => {
+                    if (this.isDragging) { // Cancel pending clicks if user is currently holding down a new press
                         this.clickCount = 0;
-                        clearInterval(this.handleClick!);
+                        this.handleClick = null;
+                        return;
                     }
-                }, 20);
+                    switch (this.clickCount) {
+                        case 1:
+                            this.executeAction('actionCenter');
+                            this.currentIcon = this.config.icoCenter || '';
+                            break;
+                        case 2:
+                            this.executeAction('actionDouble');
+                            this.currentIcon = this.config.icoDouble || '';
+                            break;
+                        case 3:
+                            this.executeAction('actionTriple');
+                            this.currentIcon = this.config.icoTriple || '';
+                            break;
+                        case 4:
+                            this.executeAction('actionQuadruple');
+                            this.currentIcon = this.config.icoQuadruple || '';
+                            break;
+                    }
+                    this.clickCount = 0;
+                    this.handleClick = null;
+                };
+
+                if (this.clickCount === this.maxMultiClicks) {
+                    triggerClick();
+                } else {
+                    this.handleClick = window.setTimeout(triggerClick, this.config.multiClickTime!);
+                }
             }
         } else {
             const dx = this.buttonRealPos.x - this.buttonOrigin.x;
@@ -787,28 +865,24 @@ export class DragCard extends LitElement {
                 if (dx > 0) {
                     if (this.hasAction('Right')) {
                         this.currentIcon = this.config.icoRight || this.currentIcon;
-                        this.executeAction('actionRight', 'entityRight');
-                        console.log("swipe right ")
+                        this.executeAction('actionRight');
                     }
                 } else {
                     if (this.hasAction('Left')) {
                         this.currentIcon = this.config.icoLeft || this.currentIcon;
-                        this.executeAction('actionLeft', 'entityLeft');
-                        console.log("swipe left ")
+                        this.executeAction('actionLeft');
                     }
                 }
             } else {
                 if (dy > 0) {
                     if (this.hasAction('Down')) {
                         this.currentIcon = this.config.icoDown || this.currentIcon;
-                        this.executeAction('actionDown', 'entityDown');
-                        console.log("swipe down ")
+                        this.executeAction('actionDown');
                     }
                 } else {
                     if (this.hasAction('Up')) {
                         this.currentIcon = this.config.icoUp || this.currentIcon;
-                        this.executeAction('actionUp', 'entityUp');
-                        console.log("swipe up ")
+                        this.executeAction('actionUp');
                     }
                 }
             }
@@ -820,27 +894,11 @@ export class DragCard extends LitElement {
         }, 3000);
     }
 
-    // This function uses the Home Assistant API to call the correct service for the entity
-    private callService(entityId: string) {
-        if (!this.hass || !entityId) return;
-
-        const [domain] = entityId.split('.');
-        switch (domain) {
-            case 'button':
-                this.hass.callService('button', 'press', { entity_id: entityId });
-                break;
-            case 'script':
-                this.hass.callService('script', 'turn_on', { entity_id: entityId });
-                break;
-            default:
-                this.hass.callService(domain, 'toggle', { entity_id: entityId });
-        }
-    }
-
     // This function is called when the mouse or touch is released
     // It resets the button position and stops the drag action
     private endDrag() {
-        //console.log("endDrag");
+        if (!this.isDragging) return; // Prevent double execution
+
         this.isDragging = false;
         document.body.style.cursor = '';
         this.visualButton.style.cursor = 'pointer';
@@ -856,8 +914,9 @@ export class DragCard extends LitElement {
             }, this.rippleTime - (Date.now() - this.startTime));
         }
 
-        document.removeEventListener('pointermove', this.boundDragHandler);
-        document.removeEventListener('pointerup', this.boundEndDragHandler);
+        document.removeEventListener('pointermove', this.boundDragHandler, { capture: true });
+        document.removeEventListener('pointerup', this.boundEndDragHandler, { capture: true });
+        document.removeEventListener('pointercancel', this.boundCancelDragHandler, { capture: true });
         
         if (this.isHoldAction == false) {
             if (this.config.dragMode === 'grid') {
