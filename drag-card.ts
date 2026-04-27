@@ -268,25 +268,31 @@ export class DragCard extends LitElement {
         this.style.setProperty('--drag-card-padding', this.config.padding ?? (this.config.isStandalone ? '15px' : '0px'));
         this.style.setProperty('--drag-card-width', this.config.cardWidth ?? '100%');
         this.style.setProperty('--drag-card-height', this.config.cardHeight ?? '100%');
-
-        if (this.config.cardBackgroundColor) { this.style.setProperty('--drag-card-background-color', this.config.cardBackgroundColor); }
-        if (this.config.cardBorderRadius) { this.style.setProperty('--drag-card-border-radius', this.config.cardBorderRadius); }
-        if (this.config.cardBoxShadow) { this.style.setProperty('--drag-card-box-shadow', this.config.cardBoxShadow); }
-
         this.style.setProperty('--drag-button-width', this.config.buttonWidth ?? '100%');
         this.style.setProperty('--drag-button-height', this.config.buttonHeight ?? '100%');
+        this.style.setProperty('--drag-card-icon-size', this.config.iconSize ?? '80%');
+
+        const cssMapping: Record<string, string> = {
+            cardBackgroundColor: '--drag-card-background-color',
+            cardBorderRadius: '--drag-card-border-radius',
+            cardBoxShadow: '--drag-card-box-shadow',
+            buttonBackgroundColor: '--drag-button-background-color',
+            buttonBorderRadius: '--drag-button-border-radius',
+            buttonBoxShadow: '--drag-button-box-shadow',
+        };
+
+        for (const [configKey, cssVar] of Object.entries(cssMapping)) {
+            const value = this.config[configKey as keyof DragCardConfig];
+            if (value) {
+                this.style.setProperty(cssVar, value as string);
+            }
+        }
 
         if (this.config.isStandalone == false) {
             this.style.setProperty('--drag-card-background-color', 'transparent');
             this.style.setProperty('--drag-card-box-shadow', 'none');
             this.style.setProperty('--drag-card-border', '0px');
         }
-
-        if (this.config.buttonBackgroundColor) { this.style.setProperty('--drag-button-background-color', this.config.buttonBackgroundColor); }
-        if (this.config.buttonBorderRadius) { this.style.setProperty('--drag-button-border-radius', this.config.buttonBorderRadius); }
-        if (this.config.buttonBoxShadow) { this.style.setProperty('--drag-button-box-shadow', this.config.buttonBoxShadow); }
-
-        this.style.setProperty('--drag-card-icon-size', this.config.iconSize ?? '80%');
         
         this.currentIcon = this.config.icoDefault || "";
 
@@ -702,7 +708,7 @@ export class DragCard extends LitElement {
                 const now = Date.now();
                 // 50ms cooldown prevents rapid-fire double clicks on simultaneous grid crosses
                 if (now - this.lastVibrate > 50) {
-                    navigator.vibrate(10);
+                    navigator.vibrate(50); // Increase this value (in ms) for a stronger feeling vibration
                     this.lastVibrate = now;
                 }
             }
@@ -761,31 +767,12 @@ export class DragCard extends LitElement {
         if (!this.config || !this.hass) return;
         if (this.iconTimeout) clearTimeout(this.iconTimeout);
 
-        switch (direction) {
-            case 'up':
-                if (this.hasAction('Up')) {
-                    this.currentIcon = this.config.icoUp || this.currentIcon;
-                    this.executeAction('actionUp');
-                }
-                break;
-            case 'down':
-                if (this.hasAction('Down')) {
-                    this.currentIcon = this.config.icoDown || this.currentIcon;
-                    this.executeAction('actionDown');
-                }
-                break;
-            case 'left':
-                if (this.hasAction('Left')) {
-                    this.currentIcon = this.config.icoLeft || this.currentIcon;
-                    this.executeAction('actionLeft');
-                }
-                break;
-            case 'right':
-                if (this.hasAction('Right')) {
-                    this.currentIcon = this.config.icoRight || this.currentIcon;
-                    this.executeAction('actionRight');
-                }
-                break;
+        const dirCapitalized = direction.charAt(0).toUpperCase() + direction.slice(1) as 'Up' | 'Down' | 'Left' | 'Right';
+        if (this.hasAction(dirCapitalized)) {
+            const iconKey = `ico${dirCapitalized}` as keyof DragCardConfig;
+            const actionKey = `action${dirCapitalized}` as keyof DragCardConfig;
+            this.currentIcon = (this.config[iconKey] as string) || this.currentIcon;
+            this.executeAction(actionKey);
         }
 
         this.actionCounter++;
@@ -861,30 +848,19 @@ export class DragCard extends LitElement {
         } else {
             const dx = this.buttonRealPos.x - this.buttonOrigin.x;
             const dy = this.buttonRealPos.y - this.buttonOrigin.y;
+            
+            let direction: 'Up' | 'Down' | 'Left' | 'Right';
             if (Math.abs(dx) > Math.abs(dy)) {
-                if (dx > 0) {
-                    if (this.hasAction('Right')) {
-                        this.currentIcon = this.config.icoRight || this.currentIcon;
-                        this.executeAction('actionRight');
-                    }
-                } else {
-                    if (this.hasAction('Left')) {
-                        this.currentIcon = this.config.icoLeft || this.currentIcon;
-                        this.executeAction('actionLeft');
-                    }
-                }
+                direction = dx > 0 ? 'Right' : 'Left';
             } else {
-                if (dy > 0) {
-                    if (this.hasAction('Down')) {
-                        this.currentIcon = this.config.icoDown || this.currentIcon;
-                        this.executeAction('actionDown');
-                    }
-                } else {
-                    if (this.hasAction('Up')) {
-                        this.currentIcon = this.config.icoUp || this.currentIcon;
-                        this.executeAction('actionUp');
-                    }
-                }
+                direction = dy > 0 ? 'Down' : 'Up';
+            }
+            
+            if (this.hasAction(direction)) {
+                const iconKey = `ico${direction}` as keyof DragCardConfig;
+                const actionKey = `action${direction}` as keyof DragCardConfig;
+                this.currentIcon = (this.config[iconKey] as string) || this.currentIcon;
+                this.executeAction(actionKey);
             }
         }
         

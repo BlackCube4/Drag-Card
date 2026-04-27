@@ -8,6 +8,6 @@ export default defineConfig({
       formats: ['es'],
       fileName: () => `drag-card.js`
     },
-    outDir: 'dist',
+    outDir: 'dist'
   }
 });
