@@ -817,6 +817,28 @@ export class DragCard extends LitElement {
                     this.currentIcon = this.config?.icoDefault || this.config?.icoCenter || 'mdi:alert';
                 }, 3000);
                 this.endDrag();
+            } else {
+                const dx = this.buttonRealPos.x - this.buttonOrigin.x;
+                const dy = this.buttonRealPos.y - this.buttonOrigin.y;
+                
+                let direction: 'Up' | 'Down' | 'Left' | 'Right';
+                if (Math.abs(dx) > Math.abs(dy)) {
+                    direction = dx > 0 ? 'Right' : 'Left';
+                } else {
+                    direction = dy > 0 ? 'Down' : 'Up';
+                }
+                
+                if (this.hasAction(direction)) {
+                    const iconKey = `ico${direction}` as keyof DragCardConfig;
+                    const actionKey = `action${direction}` as keyof DragCardConfig;
+                    this.currentIcon = (this.config[iconKey] as string) || this.currentIcon;
+                    this.executeAction(actionKey);
+                }
+                
+                this.actionCounter++;
+                this.iconTimeout = window.setTimeout(() => {
+                    this.currentIcon = this.config?.icoDefault || this.config?.icoCenter || 'mdi:alert';
+                }, 3000);
             }
             return; // ALWAYS return for holdMode 1 to prevent accidental swipe executions
         }
